@@ -1,0 +1,47 @@
+# Custom user rules
+docs.
+
+# Visual Studio / .NET
+.vs/
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.docstates
+packages/
+TestResults/
+
+# User-specific files
+*.suo
+*.userprefs
+*.ide
+*.ide-shm
+*.ide-wal
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# JetBrains Rider / Resharper
+.idea/
+*.sln.iml
+_ReSharper*/
+*.DotSettings.user
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+.cursor/*
+
+# Build and debugging artifacts
+*.log
+*.pdb
+*.exe
+# Se quiser ignorar a DLL gerada na raiz, descomente a linha abaixo
+# *.dll
