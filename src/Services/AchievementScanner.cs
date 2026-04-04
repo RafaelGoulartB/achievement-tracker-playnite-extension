@@ -6,6 +6,7 @@ using AchievementTracker.Models;
 using Newtonsoft.Json.Linq;
 using Playnite.SDK;
 using Playnite.SDK.Models;
+using Microsoft.Win32;
 
 namespace AchievementTracker.Services
 {
@@ -113,17 +114,17 @@ namespace AchievementTracker.Services
                 if (!string.IsNullOrEmpty(DetectedId))
                 {
                     filesToParse.AddRange(GetExternalAchievementFiles(DetectedId));
+                    filesToParse.AddRange(GetSteamAchievementFiles(DetectedId));
                 }
-                else 
-                {
-                    // Fallback: if no ID, try searching by game name if we have a match in common paths
-                    // (Optional, implement if needed)
-                }
-
+                
                 // Remove duplicates and process gathered files
                 foreach (var file in filesToParse.Distinct())
                 {
-                    if (file.EndsWith("achievements.json", StringComparison.OrdinalIgnoreCase))
+                    if (file.IndexOf("librarycache", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        achievements.AddRange(ParseSteamLibraryJson(file));
+                    }
+                    else if (file.EndsWith("achievements.json", StringComparison.OrdinalIgnoreCase))
                     {
                         achievements.AddRange(ParseGoldbergJson(file));
                     }
@@ -209,6 +210,93 @@ namespace AchievementTracker.Services
             pathsToCheck.Add(Path.Combine(appData, "SmartSteamEmu", objectId, "User", "Achievements.ini"));
 
             return pathsToCheck.Where(File.Exists);
+        }
+
+        private string GetSteamPath()
+        {
+            try 
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam"))
+                {
+                    return key?.GetValue("SteamPath")?.ToString();
+                }
+            }
+            catch { return null; }
+        }
+
+        private IEnumerable<string> GetSteamAchievementFiles(string appId)
+        {
+            var detectedPaths = new List<string>();
+            var steamPath = GetSteamPath();
+            if (string.IsNullOrEmpty(steamPath)) return detectedPaths;
+
+            var userDataPath = Path.Combine(steamPath, "userdata");
+            if (!Directory.Exists(userDataPath)) return detectedPaths;
+
+            try 
+            {
+                foreach (var userDir in Directory.GetDirectories(userDataPath))
+                {
+                    var cacheFile = Path.Combine(userDir, "config", "librarycache", appId + ".json");
+                    if (File.Exists(cacheFile))
+                    {
+                        detectedPaths.Add(cacheFile);
+                    }
+                }
+            }
+            catch { }
+            return detectedPaths;
+        }
+
+        private List<Achievement> ParseSteamLibraryJson(string filePath)
+        {
+            var list = new List<Achievement>();
+            try
+            {
+                var content = File.ReadAllText(filePath);
+                var jArray = JArray.Parse(content);
+                
+                // Steam librarycache JSON is an array of [key, value] tuples
+                foreach (var tuple in jArray)
+                {
+                    if (tuple[0]?.ToString() == "achievements")
+                    {
+                        var dataNode = tuple[1]?["data"];
+                        if (dataNode != null)
+                        {
+                            // Process both highlighted and hidden/unachieved
+                            ProcessSteamAchievementList(dataNode["vecHighlight"], list);
+                            ProcessSteamAchievementList(dataNode["vecAchievedHidden"], list);
+                            ProcessSteamAchievementList(dataNode["vecUnachieved"], list);
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        private void ProcessSteamAchievementList(JToken token, List<Achievement> list)
+        {
+            if (token == null || !(token is JArray arr)) return;
+            foreach (var item in arr)
+            {
+                var id = item["strID"]?.ToString();
+                if (string.IsNullOrEmpty(id)) continue;
+
+                var achieved = item["bAchieved"]?.ToObject<bool>() ?? false;
+                var unlockTime = item["rtUnlocked"]?.ToObject<long>() ?? 0;
+
+                list.Add(new Achievement
+                {
+                    Id = id,
+                    Name = item["strName"]?.ToString() ?? id,
+                    Description = item["strDescription"]?.ToString() ?? "",
+                    IsUnlocked = achieved,
+                    UnlockTime = achieved && unlockTime > 0 ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).DateTime : (DateTime?)null,
+                    IconUrl = item["strImage"]?.ToString()
+                });
+            }
         }
 
         private List<Achievement> ParseGoldbergJson(string filePath)
