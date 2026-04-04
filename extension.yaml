@@ -1,0 +1,6 @@
+Id: achievement-tracker-playnite-extension
+Name: Achievement Tracker
+Author: RafaelGoulartB
+Version: 1.0
+Module: AchievementTracker.dll
+Type: GenericPlugin
