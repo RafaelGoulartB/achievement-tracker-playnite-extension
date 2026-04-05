@@ -21,6 +21,11 @@ namespace AchievementTracker.Models
         public List<string> LocalFilesChecked { get; set; } = new List<string>();   // checked but missing
         public int          UnlockedLocalCount { get; set; }
 
+        // -- Debug details for mismatch investigation --
+        public List<string> LocalUnlocksFound { get; set; } = new List<string>();
+        public List<string> MatchHistory      { get; set; } = new List<string>();
+        public string       SteamMetadataJson { get; set; }
+
         // ── Final result ──────────────────────────────────────────────────
         public int    TotalAchievements  { get; set; }
         public string Mode               { get; set; }  // "Online", "LocalOnly", "None"

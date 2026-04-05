@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
+using System.Text;
+using System.Globalization;
 using System.Xml.Linq;
 using AchievementTracker.Models;
 using Microsoft.Win32;
@@ -32,6 +34,16 @@ namespace AchievementTracker.Services
             try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
         }
 
+        private void Log(string msg)
+        {
+            try
+            {
+                var path = Path.Combine(playniteApi.Paths.ExtensionsDataPath, "achievement_tracker_debug.log");
+                File.AppendAllText(path, $"[{DateTime.Now:HH:mm:ss}] {msg}\n");
+            }
+            catch { }
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         // PUBLIC API
         // ─────────────────────────────────────────────────────────────────────
@@ -50,18 +62,35 @@ namespace AchievementTracker.Services
             if (!string.IsNullOrEmpty(DetectedId))
             {
                 masterList = FetchSteamAchievements(DetectedId, dbg);
+                if (masterList.Count > 0)
+                {
+                    dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(masterList, Newtonsoft.Json.Formatting.Indented);
+                }
             }
 
             // ── STEP 3: Local unlock status ────────────────────────────────────
             var unlockedIds = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-            CollectLocalUnlockStatus(game, DetectedId, unlockedIds, dbg);
-            dbg.UnlockedLocalCount = unlockedIds.Count;
+            var idToNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            CollectLocalUnlockStatus(game, DetectedId, unlockedIds, idToNameMap, dbg);
+            
+            // For any ID unlocked, also mark its name as unlocked (if known from metadata)
+            foreach (var kvp in idToNameMap)
+            {
+                if (unlockedIds.TryGetValue(kvp.Key, out var t))
+                {
+                    if (!unlockedIds.ContainsKey(kvp.Value)) unlockedIds[kvp.Value] = t;
+                }
+            }
+
+            dbg.UnlockedLocalCount = unlockedIds.Values.Distinct().Count();
 
             // ── STEP 4: If Steam returned nothing, local-only fallback ─────────
             if (masterList.Count == 0)
             {
                 dbg.Mode = "LocalOnly";
                 var localList = BuildLocalOnlyList(game, DetectedId, dbg);
+                dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(localList, Newtonsoft.Json.Formatting.Indented);
                 dbg.TotalAchievements = localList.Count;
                 return localList
                     .OrderBy(a => a.IsUnlocked ? 0 : 1)
@@ -71,15 +100,65 @@ namespace AchievementTracker.Services
 
             // ── STEP 5: Merge unlock status into master list ───────────────────
             dbg.Mode = "Online";
+            Log($"Merging {unlockedIds.Count} local IDs/Names into {masterList.Count} Steam achievements...");
+            
+            dbg.LocalUnlocksFound = unlockedIds.Keys.OrderBy(k => k).ToList();
+            
+            // Build a normalized map of local unlocks for fallback matching
+            var normalizedLocal = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in unlockedIds)
+            {
+                var norm = Normalize(kvp.Key);
+                if (!string.IsNullOrEmpty(norm) && !normalizedLocal.ContainsKey(norm))
+                    normalizedLocal[norm] = kvp.Value;
+            }
+
+            // Pass 1: Match by ID (exact apiname)
             foreach (var ach in masterList)
             {
+                string status = $"ID: '{ach.Id}' | Name: '{ach.Name}' -> ";
                 if (unlockedIds.TryGetValue(ach.Id, out var t))
                 {
+                    Log($"Match by ID: {ach.Id} -> Unlocked!");
                     ach.IsUnlocked = true;
                     ach.UnlockTime = t;
+                    dbg.MatchHistory.Add(status + "[MATCH BY ID]");
+                }
+                else if (unlockedIds.TryGetValue(ach.Name, out var t2))
+                {
+                    Log($"Match by Name: {ach.Name} -> Unlocked!");
+                    ach.IsUnlocked = true;
+                    ach.UnlockTime = t2;
+                    dbg.MatchHistory.Add(status + "[MATCH BY NAME]");
+                }
+                else
+                {
+                    // Pass 3: Match by Normalization (case, spacing, special chars, accents)
+                    var normId   = Normalize(ach.Id);
+                    var normName = Normalize(ach.Name);
+                    
+                    if (!string.IsNullOrEmpty(normId) && normalizedLocal.TryGetValue(normId, out var t3))
+                    {
+                        Log($"Match by Normalized ID: {ach.Id} -> {normId} -> Unlocked!");
+                        ach.IsUnlocked = true;
+                        ach.UnlockTime = t3;
+                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM ID: {normId}]");
+                    }
+                    else if (!string.IsNullOrEmpty(normName) && normalizedLocal.TryGetValue(normName, out var t4))
+                    {
+                        Log($"Match by Normalized Name: {ach.Name} -> {normName} -> Unlocked!");
+                        ach.IsUnlocked = true;
+                        ach.UnlockTime = t4;
+                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: {normName}]");
+                    }
+                    else
+                    {
+                        dbg.MatchHistory.Add(status + "[NO MATCH]");
+                    }
                 }
             }
 
+            dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(masterList, Newtonsoft.Json.Formatting.Indented);
             dbg.TotalAchievements = masterList.Count;
             return masterList
                 .OrderBy(a => a.IsUnlocked ? 0 : 1)
@@ -238,24 +317,27 @@ namespace AchievementTracker.Services
         // ─────────────────────────────────────────────────────────────────────
 
         private void CollectLocalUnlockStatus(Game game, string appId,
-            Dictionary<string, DateTime?> unlockedIds, ScanDebugInfo dbg)
+            Dictionary<string, DateTime?> unlockedIds, 
+            Dictionary<string, string> idToNameMap,
+            ScanDebugInfo dbg)
         {
             if (!string.IsNullOrEmpty(game.InstallDirectory) && Directory.Exists(game.InstallDirectory))
             {
                 var dir = game.InstallDirectory;
 
-                foreach (var f in Directory.GetFiles(dir, "achievements.json", SearchOption.AllDirectories))
+                foreach (var f in Directory.GetFiles(dir, "*.*", SearchOption.AllDirectories))
                 {
-                    if (f.IndexOf("steam_settings", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                    dbg?.LocalFilesFound.Add(f);
-                    MergeGoldbergUnlocks(f, unlockedIds);
-                }
-
-                foreach (var f in Directory.GetFiles(dir, "*.ini", SearchOption.AllDirectories)
-                                            .Where(IsAchievementIni))
-                {
-                    dbg?.LocalFilesFound.Add(f);
-                    MergeIniUnlocks(f, unlockedIds);
+                    var n = Path.GetFileName(f).ToLowerInvariant();
+                    if (n.EndsWith(".json") && (n.Contains("achiev") || n.Contains("stats") || n.Contains("score") || n.Contains("clair")))
+                    {
+                        dbg?.LocalFilesFound.Add(f);
+                        MergeGoldbergUnlocks(f, unlockedIds, idToNameMap);
+                    }
+                    else if (n.EndsWith(".ini") && (n.Contains("achiev") || n.Contains("stats") || n.Contains("emu") || n.Contains("context") || n.Contains("codex")))
+                    {
+                        dbg?.LocalFilesFound.Add(f);
+                        MergeIniUnlocks(f, unlockedIds);
+                    }
                 }
 
                 foreach (var fltDir in Directory.GetDirectories(dir, "achievements", SearchOption.AllDirectories)
@@ -277,7 +359,7 @@ namespace AchievementTracker.Services
                 {
                     dbg?.LocalFilesFound.Add(entry.Key);
                     if (entry.Key.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-                        MergeGoldbergUnlocks(entry.Key, unlockedIds);
+                        MergeGoldbergUnlocks(entry.Key, unlockedIds, idToNameMap);
                     else
                         MergeIniUnlocks(entry.Key, unlockedIds);
                 }
@@ -354,35 +436,86 @@ namespace AchievementTracker.Services
         // Merge helpers (update status dict only)
         // ─────────────────────────────────────────────────────────────────────
 
-        private void MergeGoldbergUnlocks(string filePath, Dictionary<string, DateTime?> dict)
+        private void MergeGoldbergUnlocks(string filePath, 
+            Dictionary<string, DateTime?> dict,
+            Dictionary<string, string> idToNameMap = null)
         {
             try
             {
-                var token = JToken.Parse(File.ReadAllText(filePath));
-                if (token is JArray arr)
-                {
-                    foreach (var item in arr)
-                    {
-                        var id = item["name"]?.ToString();
-                        if (string.IsNullOrEmpty(id)) continue;
-                        if (!(item["earned"]?.ToObject<bool>() ?? false)) continue;
-                        var ts = item["earned_time"]?.ToObject<long>() ?? 0;
-                        if (!dict.ContainsKey(id))
-                            dict[id] = ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null;
-                    }
-                }
-                else if (token is JObject obj)
-                {
-                    foreach (var prop in obj.Properties())
-                    {
-                        if (!(prop.Value["earned"]?.ToObject<bool>() ?? false)) continue;
-                        var ts = prop.Value["earned_time"]?.ToObject<long>() ?? 0;
-                        if (!dict.ContainsKey(prop.Name))
-                            dict[prop.Name] = ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null;
-                    }
-                }
+                var content = File.ReadAllText(filePath);
+                var token = JToken.Parse(content);
+                ScanJsonForAchievements(token, dict, idToNameMap);
             }
             catch { }
+        }
+
+        private void ScanJsonForAchievements(JToken token, 
+            Dictionary<string, DateTime?> dict, 
+            Dictionary<string, string> idToNameMap)
+        {
+            if (token == null) return;
+
+            if (token is JObject obj)
+            {
+                // Try to identify if this object is an achievement entry
+                // Common keys: "name"/"strID", "earned"/"bAchieved", "displayName"/"strName"
+                var id   = obj["name"]?.ToString() ?? obj["strID"]?.ToString();
+                var name = obj["displayName"]?["english"]?.ToString() ?? obj["displayName"]?.ToString() ?? obj["strName"]?.ToString();
+                
+                // If it has an ID, we can use it for mapping
+                if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                {
+                    if (idToNameMap != null) idToNameMap[id] = name;
+                }
+
+                // Check if earned
+                bool isEarned = false;
+                var earnedToken = obj["earned"] ?? obj["bAchieved"];
+                if (earnedToken != null)
+                {
+                    if (earnedToken.Type == JTokenType.Boolean) isEarned = (bool)earnedToken;
+                    else if (earnedToken.Type == JTokenType.Integer) isEarned = (long)earnedToken != 0;
+                    else if (earnedToken.Type == JTokenType.String)
+                    {
+                        var s = earnedToken.ToString();
+                        isEarned = s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1";
+                    }
+                }
+
+                if (isEarned)
+                {
+                    long ts = 0;
+                    var timeToken = obj["earned_time"] ?? obj["rtUnlocked"];
+                    if (timeToken != null)
+                    {
+                        if (timeToken.Type == JTokenType.Integer) ts = (long)timeToken;
+                    }
+
+                    var t = ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null;
+                    
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        if (!dict.ContainsKey(id)) { dict[id] = t; Log($"Found local unlock (ID): {id}"); }
+                    }
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        if (!dict.ContainsKey(name)) { dict[name] = t; Log($"Found local unlock (Name): {name}"); }
+                    }
+                }
+
+                // Continue recursion into properties even if this was an achievement (might be nested containers)
+                foreach (var prop in obj.Properties())
+                {
+                    ScanJsonForAchievements(prop.Value, dict, idToNameMap);
+                }
+            }
+            else if (token is JArray arr)
+            {
+                foreach (var item in arr)
+                {
+                    ScanJsonForAchievements(item, dict, idToNameMap);
+                }
+            }
         }
 
         private void MergeIniUnlocks(string filePath, Dictionary<string, DateTime?> dict)
@@ -721,6 +854,39 @@ namespace AchievementTracker.Services
                     return key?.GetValue("SteamPath")?.ToString();
             }
             catch { return null; }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // NORMALIZATION
+        // ─────────────────────────────────────────────────────────────────────
+
+        private string Normalize(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return string.Empty;
+            // 1. Remove accents
+            var s = RemoveAccents(input);
+            // 2. Lowercase
+            s = s.ToLowerInvariant();
+            // 3. Keep only alphanumeric
+            s = Regex.Replace(s, @"[^a-z0-9]", "");
+            return s;
+        }
+
+        private string RemoveAccents(string text)
+        {
+            var normalizedString = text.Normalize(NormalizationForm.FormD);
+            var stringBuilder = new StringBuilder();
+
+            foreach (var c in normalizedString)
+            {
+                var unicodeCategory = CharUnicodeInfo.GetUnicodeCategory(c);
+                if (unicodeCategory != UnicodeCategory.NonSpacingMark)
+                {
+                    stringBuilder.Append(c);
+                }
+            }
+
+            return stringBuilder.ToString().Normalize(NormalizationForm.FormC);
         }
     }
 }

@@ -106,6 +106,14 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Steam Metadata JSON -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Label Content="📄 Steam Achievement Metadata (Downloaded JSON)"/>
+                        <TextBox x:Name="SteamMetadataBox" Height="150" FontFamily="Consolas" FontSize="11"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Local files found -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
@@ -118,7 +126,23 @@
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <Label Content="❌ Checked Paths (not found on disk)"/>
-                        <TextBox x:Name="LocalFilesCheckedBox" Height="130"/>
+                        <TextBox x:Name="LocalFilesCheckedBox" Height="80"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- NEW: Local Unlocks Detail -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Label Content="🔑 Local Achievement IDs/Names Found"/>
+                        <TextBox x:Name="LocalUnlocksBox" Height="100"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- NEW: Match Detail -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Label Content="🤝 Match History (Steam achievement --&gt; Local Match)"/>
+                        <TextBox x:Name="MatchHistoryBox" Height="180" FontFamily="Consolas" FontSize="11"/>
                     </StackPanel>
                 </Border>
 

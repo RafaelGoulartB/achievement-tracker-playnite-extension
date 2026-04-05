@@ -43,6 +43,7 @@ namespace AchievementTracker.UI
             SteamUrlText.Text    = dbg.SteamRequestUrl ?? "— no request made (AppId missing) —";
             SteamCountText.Text  = dbg.SteamAchievementCount.ToString();
             SteamErrorText.Text  = dbg.SteamFetchError ?? "";
+            SteamMetadataBox.Text = dbg.SteamMetadataJson ?? "(none)";
 
             if (string.IsNullOrEmpty(dbg.SteamRequestUrl))
             {
@@ -70,6 +71,16 @@ namespace AchievementTracker.UI
                 ? string.Join(Environment.NewLine, dbg.LocalFilesChecked)
                 : "(none)";
 
+            // Local IDs/Names found
+            LocalUnlocksBox.Text = dbg.LocalUnlocksFound.Count > 0
+                ? string.Join(Environment.NewLine, dbg.LocalUnlocksFound)
+                : "(none)";
+
+            // Match details
+            MatchHistoryBox.Text = dbg.MatchHistory.Count > 0
+                ? string.Join(Environment.NewLine, dbg.MatchHistory)
+                : "(none)";
+
             // Summary
             ModeText.Text     = dbg.Mode ?? "—";
             TotalText.Text    = $"{dbg.TotalAchievements} ({achievements.Count} returned)";
@@ -94,6 +105,10 @@ namespace AchievementTracker.UI
             sb.AppendLine($"Steam Count    : {dbg.SteamAchievementCount}");
             sb.AppendLine($"Steam Error    : {dbg.SteamFetchError}");
             sb.AppendLine($"Mode           : {dbg.Mode}");
+            sb.AppendLine();
+            sb.AppendLine("--- STEAM METADATA (JSON) ---");
+            sb.AppendLine(dbg.SteamMetadataJson ?? "(none)");
+            sb.AppendLine();
             sb.AppendLine($"Total          : {dbg.TotalAchievements}");
             sb.AppendLine($"Local Unlocked : {dbg.UnlockedLocalCount}");
             sb.AppendLine();
@@ -102,6 +117,12 @@ namespace AchievementTracker.UI
             sb.AppendLine();
             sb.AppendLine("--- CHECKED (NOT FOUND) ---");
             foreach (var f in dbg.LocalFilesChecked) sb.AppendLine(f);
+            sb.AppendLine();
+            sb.AppendLine("--- LOCAL UNLOCKS (IDs/Names) ---");
+            foreach (var s in dbg.LocalUnlocksFound) sb.AppendLine(s);
+            sb.AppendLine();
+            sb.AppendLine("--- MATCH HISTORY ---");
+            foreach (var s in dbg.MatchHistory) sb.AppendLine(s);
 
             Clipboard.SetText(sb.ToString());
             MessageBox.Show("Debug info copied to clipboard!", "Copied", MessageBoxButton.OK, MessageBoxImage.Information);
