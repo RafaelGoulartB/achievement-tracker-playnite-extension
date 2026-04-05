@@ -68,22 +68,15 @@ namespace AchievementTracker.Services
                 }
             }
 
-            // ── STEP 3: Local unlock status ────────────────────────────────────
-            var unlockedIds = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-            var idToNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // ── STEP 3: Local achievement collection ───────────────────────────
+            var localAchievements = BuildLocalOnlyList(game, DetectedId, dbg);
+            dbg.UnlockedLocalCount = localAchievements.Count(a => a.IsUnlocked);
 
-            CollectLocalUnlockStatus(game, DetectedId, unlockedIds, idToNameMap, dbg);
-            
-            // For any ID unlocked, also mark its name as unlocked (if known from metadata)
-            foreach (var kvp in idToNameMap)
-            {
-                if (unlockedIds.TryGetValue(kvp.Key, out var t))
-                {
-                    if (!unlockedIds.ContainsKey(kvp.Value)) unlockedIds[kvp.Value] = t;
-                }
-            }
-
-            dbg.UnlockedLocalCount = unlockedIds.Values.Distinct().Count();
+            // Populate debug list of local items found
+            dbg.LocalUnlocksFound = localAchievements
+                .OrderBy(l => l.Name)
+                .Select(l => l.IsUnlocked ? $"[UNLOCKED] {l.Name} ({l.Id})" : $"[LOCKED] {l.Name} ({l.Id})")
+                .ToList();
 
             // ── STEP 4: If Steam returned nothing, local-only fallback ─────────
             if (masterList.Count == 0)
@@ -100,62 +93,54 @@ namespace AchievementTracker.Services
 
             // ── STEP 5: Merge unlock status into master list ───────────────────
             dbg.Mode = "Online";
-            Log($"Merging {unlockedIds.Count} local IDs/Names into {masterList.Count} Steam achievements...");
+            Log($"Merging {localAchievements.Count} local entries into {masterList.Count} Steam achievements...");
             
-            dbg.LocalUnlocksFound = unlockedIds.Keys.OrderBy(k => k).ToList();
-            
-            // Build a normalized map of local unlocks for fallback matching
-            var normalizedLocal = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kvp in unlockedIds)
-            {
-                var norm = Normalize(kvp.Key);
-                if (!string.IsNullOrEmpty(norm) && !normalizedLocal.ContainsKey(norm))
-                    normalizedLocal[norm] = kvp.Value;
-            }
-
-            // Pass 1: Match by ID (exact apiname)
             foreach (var ach in masterList)
             {
                 string status = $"ID: '{ach.Id}' | Name: '{ach.Name}' -> ";
-                if (unlockedIds.TryGetValue(ach.Id, out var t))
+                
+                // 1. Match by technical ID
+                var match = localAchievements.FirstOrDefault(l => l.Id.Equals(ach.Id, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
                 {
-                    Log($"Match by ID: {ach.Id} -> Unlocked!");
-                    ach.IsUnlocked = true;
-                    ach.UnlockTime = t;
+                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
                     dbg.MatchHistory.Add(status + "[MATCH BY ID]");
+                    continue;
                 }
-                else if (unlockedIds.TryGetValue(ach.Name, out var t2))
+
+                // 2. Match by exact Name
+                match = localAchievements.FirstOrDefault(l => l.Name.Equals(ach.Name, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
                 {
-                    Log($"Match by Name: {ach.Name} -> Unlocked!");
-                    ach.IsUnlocked = true;
-                    ach.UnlockTime = t2;
+                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
                     dbg.MatchHistory.Add(status + "[MATCH BY NAME]");
+                    continue;
                 }
-                else
+
+                // 3. Match by Normalized Name
+                var normSteamName = Normalize(ach.Name);
+                match = localAchievements.FirstOrDefault(l => Normalize(l.Name) == normSteamName);
+                if (match != null)
                 {
-                    // Pass 3: Match by Normalization (case, spacing, special chars, accents)
-                    var normId   = Normalize(ach.Id);
-                    var normName = Normalize(ach.Name);
-                    
-                    if (!string.IsNullOrEmpty(normId) && normalizedLocal.TryGetValue(normId, out var t3))
+                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                    dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: {normSteamName}]");
+                    continue;
+                }
+
+                // 4. Match by Normalized Description
+                if (!string.IsNullOrEmpty(ach.Description))
+                {
+                    var normSteamDesc = Normalize(ach.Description);
+                    match = localAchievements.FirstOrDefault(l => !string.IsNullOrEmpty(l.Description) && Normalize(l.Description) == normSteamDesc);
+                    if (match != null)
                     {
-                        Log($"Match by Normalized ID: {ach.Id} -> {normId} -> Unlocked!");
-                        ach.IsUnlocked = true;
-                        ach.UnlockTime = t3;
-                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM ID: {normId}]");
-                    }
-                    else if (!string.IsNullOrEmpty(normName) && normalizedLocal.TryGetValue(normName, out var t4))
-                    {
-                        Log($"Match by Normalized Name: {ach.Name} -> {normName} -> Unlocked!");
-                        ach.IsUnlocked = true;
-                        ach.UnlockTime = t4;
-                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: {normName}]");
-                    }
-                    else
-                    {
-                        dbg.MatchHistory.Add(status + "[NO MATCH]");
+                        if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM DESC]");
+                        continue;
                     }
                 }
+
+                dbg.MatchHistory.Add(status + "[NO MATCH]");
             }
 
             dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(masterList, Newtonsoft.Json.Formatting.Indented);
@@ -451,7 +436,8 @@ namespace AchievementTracker.Services
 
         private void ScanJsonForAchievements(JToken token, 
             Dictionary<string, DateTime?> dict, 
-            Dictionary<string, string> idToNameMap)
+            Dictionary<string, string> idToNameMap,
+            string propertyName = null)
         {
             if (token == null) return;
 
@@ -459,8 +445,9 @@ namespace AchievementTracker.Services
             {
                 // Try to identify if this object is an achievement entry
                 // Common keys: "name"/"strID", "earned"/"bAchieved", "displayName"/"strName"
-                var id   = obj["name"]?.ToString() ?? obj["strID"]?.ToString();
-                var name = obj["displayName"]?["english"]?.ToString() ?? obj["displayName"]?.ToString() ?? obj["strName"]?.ToString();
+                // If no name/ID found in object, fallback to property name
+                var id   = obj["name"]?.ToString() ?? obj["strID"]?.ToString() ?? propertyName;
+                var name = obj["displayName"]?["english"]?.ToString() ?? obj["displayName"]?.ToString() ?? obj["strName"]?.ToString() ?? propertyName;
                 
                 // If it has an ID, we can use it for mapping
                 if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
@@ -506,7 +493,7 @@ namespace AchievementTracker.Services
                 // Continue recursion into properties even if this was an achievement (might be nested containers)
                 foreach (var prop in obj.Properties())
                 {
-                    ScanJsonForAchievements(prop.Value, dict, idToNameMap);
+                    ScanJsonForAchievements(prop.Value, dict, idToNameMap, prop.Name);
                 }
             }
             else if (token is JArray arr)
