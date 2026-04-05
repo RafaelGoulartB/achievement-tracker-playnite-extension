@@ -104,6 +104,13 @@ namespace AchievementTracker.Services
                 if (match != null)
                 {
                     if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                    
+                    // Fill in missing metadata from local match (common for hidden Steam achievements)
+                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                    
+                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                    
                     dbg.MatchHistory.Add(status + "[MATCH BY ID]");
                     continue;
                 }
@@ -113,6 +120,12 @@ namespace AchievementTracker.Services
                 if (match != null)
                 {
                     if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                    
+                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                    
+                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                    
                     dbg.MatchHistory.Add(status + "[MATCH BY NAME]");
                     continue;
                 }
@@ -123,6 +136,12 @@ namespace AchievementTracker.Services
                 if (match != null)
                 {
                     if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                    
+                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                    
+                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                    
                     dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: {normSteamName}]");
                     continue;
                 }
@@ -135,6 +154,9 @@ namespace AchievementTracker.Services
                     if (match != null)
                     {
                         if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                        
+                        if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                        
                         dbg.MatchHistory.Add(status + $"[MATCH BY NORM DESC]");
                         continue;
                     }
@@ -143,12 +165,15 @@ namespace AchievementTracker.Services
                 dbg.MatchHistory.Add(status + "[NO MATCH]");
             }
 
+            // Apply global sorting: Unlocked first, then by commonality (higher percentage first)
+            masterList = masterList
+                .OrderByDescending(a => a.IsUnlocked)
+                .ThenByDescending(a => a.Rarity)
+                .ToList();
+
             dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(masterList, Newtonsoft.Json.Formatting.Indented);
             dbg.TotalAchievements = masterList.Count;
-            return masterList
-                .OrderBy(a => a.IsUnlocked ? 0 : 1)
-                .ThenBy(a => a.Name)
-                .ToList();
+            return masterList;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -247,6 +272,7 @@ namespace AchievementTracker.Services
                                 Id          = id,
                                 Name        = item.Element("name")?.Value ?? id,
                                 Description = item.Element("description")?.Value ?? "",
+                                IsHidden    = item.Element("hidden")?.Value == "1",
                                 IconUrl     = item.Element("iconClosed")?.Value,
                                 IsUnlocked  = false
                             });
@@ -272,11 +298,16 @@ namespace AchievementTracker.Services
                             var desc = descMatch.Success ? WebUtility.HtmlDecode(descMatch.Groups[1].Value).Trim() : "";
                             var icon = imgMatch.Success ? imgMatch.Groups[1].Value : null;
 
+                            var percentMatch = Regex.Match(rowHtml, @"<div class=""achievePercent"">(.*?)%</div>");
+                            var perc = percentMatch.Success ? double.Parse(percentMatch.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : 0;
+
                             list.Add(new Achievement
                             {
                                 Id          = name, // fallback to name as ID
                                 Name        = name,
                                 Description = desc,
+                                IsHidden    = desc.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase),
+                                Rarity      = perc,
                                 IconUrl     = icon,
                                 IsUnlocked  = false
                             });
@@ -469,6 +500,8 @@ namespace AchievementTracker.Services
                     }
                 }
 
+                bool isHidden = obj["hidden"]?.ToObject<bool>() ?? obj["bHidden"]?.ToObject<bool>() ?? false;
+
                 if (isEarned)
                 {
                     long ts = 0;
@@ -615,8 +648,10 @@ namespace AchievementTracker.Services
                         if (!string.IsNullOrEmpty(icon))
                             iconPath = Path.IsPathRooted(icon) ? icon
                                      : Path.Combine(Path.GetDirectoryName(filePath) ?? "", icon);
+                        var hid  = item["hidden"]?.ToObject<bool>() ?? item["bHidden"]?.ToObject<bool>() ?? false;
+                        var rar  = item["flAchieved"]?.ToObject<double>() ?? 0;
                         list.Add(new Achievement { Id = id, Name = name, Description = desc,
-                            IsUnlocked = earn,
+                            IsUnlocked = earn, IsHidden = hid, Rarity = rar,
                             UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null,
                             IconUrl    = iconPath });
                     }
@@ -627,8 +662,12 @@ namespace AchievementTracker.Services
                     {
                         var earn = prop.Value["earned"]?.ToObject<bool>() ?? false;
                         var ts   = prop.Value["earned_time"]?.ToObject<long>() ?? 0;
-                        list.Add(new Achievement { Id = prop.Name, Name = prop.Name, Description = "",
-                            IsUnlocked = earn,
+                        var hid  = prop.Value["hidden"]?.ToObject<bool>() ?? prop.Value["bHidden"]?.ToObject<bool>() ?? false;
+                        var name = prop.Value["strName"]?.ToString() ?? prop.Value["displayName"]?.ToString() ?? prop.Name;
+                        var dsc  = prop.Value["strDescription"]?.ToString() ?? prop.Value["description"]?.ToString() ?? "";
+                        var rar  = prop.Value["flAchieved"]?.ToObject<double>() ?? 0;
+                        list.Add(new Achievement { Id = prop.Name, Name = name, Description = dsc,
+                            IsUnlocked = earn, IsHidden = hid, Rarity = rar,
                             UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null });
                     }
                 }

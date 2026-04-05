@@ -28,6 +28,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="48"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             
                             <!-- Icon -->
@@ -38,7 +39,7 @@
                             <!-- Info -->
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15" Foreground="White"/>
-                                <TextBlock Text="{Binding Description}" FontSize="12" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                <TextBlock Text="{Binding DisplayDescription}" FontSize="12" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="0,2,0,0"/>
                                 
                                 <!-- Status -->
                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Visibility="{Binding IsUnlocked, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -46,6 +47,11 @@
                                     <TextBlock Text="{Binding UnlockTime, StringFormat='  ({0:g})'}" FontSize="11" Foreground="#888888"/>
                                 </StackPanel>
                             </StackPanel>
+
+                            <!-- Rarity -->
+                            <TextBlock Text="{Binding Rarity, StringFormat={}{0:0.#}%}" Grid.Column="2" 
+                                       VerticalAlignment="Top" HorizontalAlignment="Right"
+                                       Foreground="#66FFFFFF" FontSize="11" Margin="10,0,0,0"/>
                         </Grid>
                     </Border>
                 </DataTemplate>

@@ -48,6 +48,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="36"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <Border Width="32" Height="32" Background="#333" CornerRadius="3" VerticalAlignment="Center" Grid.Column="0">
                                     <Image Source="{Binding IconUrl}" Stretch="UniformToFill">
@@ -64,11 +65,14 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="12" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Description}" FontSize="10" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="0,1,0,0"/>
+                                    <TextBlock Text="{Binding DisplayDescription}" FontSize="10" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="0,1,0,0"/>
                                     <TextBlock Text="✓ Unlocked" FontSize="10" Foreground="#4CAF50" FontWeight="Bold"
                                                Visibility="{Binding IsUnlocked, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                Margin="0,2,0,0"/>
                                 </StackPanel>
+                                <TextBlock Text="{Binding Rarity, StringFormat={}{0:0.#}%}" Grid.Column="2" 
+                                           VerticalAlignment="Top" HorizontalAlignment="Right"
+                                           Foreground="#66FFFFFF" FontSize="10" Margin="4,0,0,0"/>
                             </Grid>
                         </Border>
                     </DataTemplate>
