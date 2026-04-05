@@ -42,11 +42,13 @@ namespace AchievementTracker.UI
             Log($"SetGame called: {game?.Name ?? "NULL"}");
             if (game == null)
             {
-                StatusText.Text = "[AT] No game selected";
+                StatusText.Text = "No game selected";
+                StatusText.Visibility = Visibility.Visible;
                 return;
             }
 
-            StatusText.Text = $"[AT] Scanning: {game.Name}...";
+            StatusText.Text = $"Scanning: {game.Name}...";
+            StatusText.Visibility = Visibility.Visible;
             AchievementsListBox.Visibility = Visibility.Collapsed;
             UnlockCountText.Text = "0/0";
             PercentText.Text = " (0%)";
@@ -68,10 +70,9 @@ namespace AchievementTracker.UI
                             string msg = $"No achievements found for {game.Name}";
                             if (!string.IsNullOrEmpty(scanner.DetectedId))
                                 msg += $" (SteamId: {scanner.DetectedId})";
-                            else
-                                msg += " (No SteamId detected)";
-
-                            StatusText.Text = $"[AT] {msg}";
+                            
+                            StatusText.Text = msg;
+                            StatusText.Visibility = Visibility.Visible;
                             AchievementsListBox.Visibility = Visibility.Collapsed;
                             UnlockCountText.Text = "0/0";
                             PercentText.Text = " (0%)";
@@ -79,11 +80,12 @@ namespace AchievementTracker.UI
                         }
                         else
                         {
+                            StatusText.Visibility = Visibility.Collapsed;
+                            
                             int unlocked = achievements.Count(a => a.IsUnlocked);
                             int total = achievements.Count;
                             double percent = total > 0 ? (double)unlocked / total * 100 : 0;
 
-                            StatusText.Text = $"[AT] {game.Name}";
                             UnlockCountText.Text = $"{unlocked}/{total}";
                             PercentText.Text = $" ({percent:0}%)";
                             AchievementsListBox.Visibility = Visibility.Visible;
@@ -104,7 +106,8 @@ namespace AchievementTracker.UI
                     Log($"ERROR: {ex.Message}\n{ex.StackTrace}");
                     this.Dispatcher.Invoke(() =>
                     {
-                        StatusText.Text = $"[AT] Error: {ex.Message}";
+                        StatusText.Text = "Error: " + ex.Message;
+                        StatusText.Visibility = Visibility.Visible;
                         AchievementsListBox.Visibility = Visibility.Collapsed;
                     });
                 }
