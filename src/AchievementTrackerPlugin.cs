@@ -85,12 +85,27 @@ namespace AchievementTracker
                 new GameMenuItem
                 {
                     Description = "View Achievements (Window)",
+                    MenuSection = "Achievement Tracker",
                     Action = (a) =>
                     {
                         var game = args.Games.FirstOrDefault();
                         if (game != null)
                         {
                             var window = new AchievementsWindow(PlayniteApi, game);
+                            window.ShowDialog();
+                        }
+                    }
+                },
+                new GameMenuItem
+                {
+                    Description = "Debug Info",
+                    MenuSection = "Achievement Tracker",
+                    Action = (a) =>
+                    {
+                        var game = args.Games.FirstOrDefault();
+                        if (game != null)
+                        {
+                            var window = new DebugWindow(PlayniteApi, game);
                             window.ShowDialog();
                         }
                     }
