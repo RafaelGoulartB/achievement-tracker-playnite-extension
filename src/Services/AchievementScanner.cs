@@ -495,8 +495,8 @@ namespace AchievementTracker.Services
                     else if (earnedToken.Type == JTokenType.Integer) isEarned = (long)earnedToken != 0;
                     else if (earnedToken.Type == JTokenType.String)
                     {
-                        var s = earnedToken.ToString();
-                        isEarned = s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1";
+                        var earnedStr = earnedToken.ToString();
+                        isEarned = earnedStr.Equals("true", StringComparison.OrdinalIgnoreCase) || earnedStr == "1";
                     }
                 }
 
