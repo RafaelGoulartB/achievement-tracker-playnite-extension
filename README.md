@@ -2,7 +2,7 @@
 
 A powerful, integrated achievement tracking extension for [Playnite](https://playnite.link/). View your progress, track unlocks, and manage your library completion status all in one place.
 
-![Main Screenshot Placeholder](https://via.placeholder.com/1200x600/1e1e1e/ffffff?text=Achievement+Tracker+Main+UI)
+<img width="1024" height="540" alt="image" src="https://github.com/user-attachments/assets/1e35c372-dce3-42d0-8928-9d09fa4d84f5" />
 
 ---
 
@@ -20,7 +20,9 @@ Track specific achievements directly on the game details page.
 - **Beautiful UI:** Modern design with progress tracking and icon support.
 - **Wide Compatibility:** Support for Steam, CODEX, RUNE, Goldberg (GSE), FLT, and more.
 
-![Details Screenshot Placeholder](https://via.placeholder.com/800x400/1e1e1e/ffffff?text=Game+Details+View)
+<img width="1024" height="540" alt="image" src="https://github.com/user-attachments/assets/d52a860b-8593-406e-8615-e4a05563fb4c" />
+<img width="640" height="720" alt="image" src="https://github.com/user-attachments/assets/dfca2e43-87d1-4605-84cd-a68fdf4fb566" />
+
 
 ### 🔍 Supported Sources
 | Source | Tracking Method |
