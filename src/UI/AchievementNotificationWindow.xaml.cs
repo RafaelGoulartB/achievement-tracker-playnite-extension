@@ -24,11 +24,13 @@ namespace AchievementTracker.UI
     {
         private DispatcherTimer dismissTimer;
         private readonly int timeoutSeconds;
+        private readonly bool playSound;
         private bool isDismissing;
 
-        public AchievementNotificationWindow(Achievement achievement, int timeoutSeconds = 5)
+        public AchievementNotificationWindow(Achievement achievement, int timeoutSeconds = 5, bool playSound = false)
         {
             this.timeoutSeconds = timeoutSeconds;
+            this.playSound = playSound;
             InitializeComponent();
 
             // Populate content
@@ -52,15 +54,61 @@ namespace AchievementTracker.UI
                     // Fallback: image remains as default dark box
                 }
             }
+
+            // Apply rarity-tier styling
+            ApplyRarityTier(achievement.RarityTier);
         }
 
         /// <summary>
-        /// Positions the window at the bottom-right of the primary work area
+        /// Applies visual styling based on achievement rarity tier.
+        /// Gold: gold border (#FFD700), gold header, trophy indicator.
+        /// Silver: silver border (#C0C0C0), silver header.
+        /// Bronze: bronze border (#CD7F32), bronze header.
+        /// </summary>
+        private void ApplyRarityTier(string tier)
+        {
+            string borderColor;
+            string headerColor;
+            bool showTrophy = false;
+
+            if (tier == "Gold")
+            {
+                borderColor = "#FFD700";
+                headerColor = "#FFD700";
+                showTrophy = true;
+            }
+            else if (tier == "Silver")
+            {
+                borderColor = "#C0C0C0";
+                headerColor = "#C0C0C0";
+            }
+            else
+            {
+                borderColor = "#CD7F32";
+                headerColor = "#CD7F32";
+            }
+
+            MainBorder.BorderBrush = (Brush)new BrushConverter().ConvertFromString(borderColor);
+            HeaderTextBlock.Foreground = (Brush)new BrushConverter().ConvertFromString(headerColor);
+
+            if (showTrophy)
+            {
+                TrophyIndicator.Visibility = Visibility.Visible;
+            }
+        }
+
+        /// <summary>
+        /// Positions the window at the top-left of the primary work area
         /// and starts the fade-in animation. Call this instead of Show().
         /// </summary>
         public void ShowAnimated()
         {
-            PositionWindow();
+            // Play notification sound if enabled
+            if (playSound)
+            {
+                System.Media.SystemSounds.Asterisk.Play();
+            }
+
             Show();
 
             // Fallback: set a fallback icon image if the Uri-based load didn't work
@@ -68,6 +116,16 @@ namespace AchievementTracker.UI
             {
                 IconImage.Source = GetFallbackIcon();
             }
+
+            // Reposition after layout pass has resolved dimensions
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                SizeToContent = SizeToContent.Manual;
+                Width = ActualWidth;
+                Height = ActualHeight;
+                Left = 10;
+                Top = 10;
+            }));
 
             // Fade in
             var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.3))
@@ -77,7 +135,6 @@ namespace AchievementTracker.UI
 
             fadeIn.Completed += (s, e) =>
             {
-                // Start auto-dismiss timer after fade-in completes
                 StartFadeOutTimer();
             };
 
@@ -148,16 +205,12 @@ namespace AchievementTracker.UI
         }
 
         /// <summary>
-        /// Positions window at bottom-right corner of primary work area.
+        /// Positions the window at the top-left corner of primary work area.
         /// </summary>
         private void PositionWindow()
         {
-            var workArea = SystemParameters.WorkArea;
-            double right = workArea.Right - Width - 10;
-            double bottom = workArea.Bottom - Height - 10;
-
-            Left = right;
-            Top = bottom;
+            Left = 10;
+            Top = 10;
         }
 
         /// <summary>
@@ -194,9 +247,5 @@ namespace AchievementTracker.UI
             return bitmap;
         }
 
-        public static void InitializeDispatcherTimer(AchievementNotificationWindow window)
-        {
-            // Static helper for when constructor-based timer creation is needed
-        }
     }
 }

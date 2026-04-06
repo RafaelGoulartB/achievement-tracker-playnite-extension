@@ -40,6 +40,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Tracking Status Header (US-002) -->
@@ -98,7 +99,8 @@
                              TextAlignment="Center"/>
 
                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Notification Sound:" Foreground="#6C7086"/>
-                    <TextBlock Grid.Row="3" Grid.Column="1" x:Name="ConfigSoundText"/>
+                    <CheckBox Grid.Row="3" Grid.Column="1" x:Name="ConfigSoundCheck" Content="" Background="#1E1E2E" Foreground="#CDD6F4"
+                              Checked="OnSoundToggleChanged" Unchecked="OnSoundToggleChanged"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -150,8 +152,38 @@
             </TabItem>
         </TabControl>
 
+        <!-- Notification Tests & Settings (US-006 / US-009) -->
+        <Border Grid.Row="3" Style="{StaticResource Card}" Margin="0,0,0,8">
+            <StackPanel>
+                <TextBlock Text="Notification Tests" FontSize="14" FontWeight="Bold" Foreground="#89B4FA" Margin="0,0,0,8"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition/>
+                        <RowDefinition/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Sound Enabled:" Foreground="#6C7086"/>
+                    <CheckBox Grid.Row="0" Grid.Column="1" x:Name="TestSoundCheck" Content="Play sound on test notification"
+                              Background="#1E1E2E" Foreground="#CDD6F4" Checked="OnSoundToggleChanged" Unchecked="OnSoundToggleChanged"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Rarity Tier:" Foreground="#6C7086"/>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
+                        <ComboBox x:Name="TierComboBox" Width="150" Background="#1E1E2E" Foreground="#CDD6F4" BorderBrush="#45475A" Padding="6,3">
+                            <ComboBoxItem Content="Gold (≤5%)" Tag="Gold"/>
+                            <ComboBoxItem Content="Silver (5–25%)" Tag="Silver"/>
+                            <ComboBoxItem Content="Bronze (&gt;25%)" Tag="Bronze" IsSelected="True"/>
+                        </ComboBox>
+                        <Button x:Name="SendTestTierBtn" Content="Send Test" Click="OnSendTierTest" Margin="10,0,0,0" Padding="16,6"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
         <!-- Action buttons (US-005 / US-006 / US-007) -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button x:Name="ReloadConfigBtn" Content="Reload Config" Click="OnReloadConfig" Margin="0,0,8,0"/>
             <Button x:Name="SaveConfigBtn" Content="Save Config" Click="OnSaveConfig" Margin="0,0,8,0"/>
             <Button x:Name="StartTrackingBtn" Content="Start Tracking" Click="OnStartTracking" Margin="0,0,8,0"/>

@@ -47,5 +47,10 @@ _ReSharper*/
 # *.dll
 
 .claude
+*claude*
+*context*
 .skills
 .spec
+tasks/
+
+.ignore

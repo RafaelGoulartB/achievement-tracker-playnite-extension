@@ -35,8 +35,8 @@ namespace AchievementTracker.Services
         public int NotificationTimeoutSeconds { get; set; }
 
         /// <summary>
-        /// Whether to play a sound on notification. Default: false.
-        /// Reserved for future use (non-goal in v1).
+        /// Whether to play a system sound on notification. Default: false.
+        /// Controls System.Media.SystemSounds.Asterisk.Play() in ShowAnimated().
         /// </summary>
         public bool ShowNotificationSound { get; set; }
 
@@ -139,6 +139,20 @@ namespace AchievementTracker.Services
         }
 
         // ── Private helpers ──
+
+        /// <summary>
+        /// Toggles ShowNotificationSound and saves to disk immediately.
+        /// Returns the new value.
+        /// </summary>
+        public bool ToggleNotificationSound()
+        {
+            lock (lockObj)
+            {
+                ShowNotificationSound = !ShowNotificationSound;
+                Save();
+                return ShowNotificationSound;
+            }
+        }
 
         private void SetDefaults()
         {

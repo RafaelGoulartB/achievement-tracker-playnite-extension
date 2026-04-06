@@ -438,7 +438,7 @@ namespace AchievementTracker.UI
             {
                 try
                 {
-                    var window = new AchievementNotificationWindow(achievement);
+                    var window = new AchievementNotificationWindow(achievement, playSound: config != null && config.ShowNotificationSound);
                     window.ShowAnimated();
                 }
                 catch (Exception ex)
@@ -502,7 +502,8 @@ namespace AchievementTracker.UI
 
             PollingIntervalBox.Text = config.PollingIntervalSeconds.ToString();
             NotificationTimeoutBox.Text = config.NotificationTimeoutSeconds.ToString();
-            ConfigSoundText.Text = config.ShowNotificationSound ? "Yes (reserved)" : "No";
+            ConfigSoundCheck.IsChecked = config.ShowNotificationSound;
+            if (TestSoundCheck != null) TestSoundCheck.IsChecked = config.ShowNotificationSound;
         }
 
         private void OnReloadConfig(object sender, RoutedEventArgs e)
@@ -586,6 +587,119 @@ namespace AchievementTracker.UI
             StopTrackingBtn.IsEnabled = isActive;
         }
 
+        // ─────────────────────────────────────────────────────────────
+        // US-006: Sound toggle
+        // ─────────────────────────────────────────────────────────────
+
+        private bool isSoundToggleUpdating = false;
+
+        private void OnSoundToggleChanged(object sender, RoutedEventArgs e)
+        {
+            if (isSoundToggleUpdating) return;
+            if (ConfigSoundCheck == null || TestSoundCheck == null) return;
+
+            EnsureConfig();
+            if (config == null) return;
+
+            bool enabled = config.ToggleNotificationSound();
+            config.ShowNotificationSound = enabled;
+
+            isSoundToggleUpdating = true;
+            TestSoundCheck.IsChecked = enabled;
+            ConfigSoundCheck.IsChecked = enabled;
+            isSoundToggleUpdating = false;
+
+            AppendLogText("[CONFIG] Notification sound " + (enabled ? "enabled" : "disabled"), LogEntryType.Info);
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // US-007 / US-009: Tier-specific test notification
+        // ─────────────────────────────────────────────────────────────
+
+        private void OnSendTierTest(object sender, RoutedEventArgs e)
+        {
+            selectedTier = "Bronze";
+            if (TierComboBox != null && TierComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem item)
+            {
+                selectedTier = (string)item.Tag;
+            }
+
+            if (game == null)
+            {
+                MessageBox.Show("Select a game first", "Debug Achievement Tracker", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            SendTestTierBtn.IsEnabled = false;
+            SendTestTierBtn.Content = "Sending...";
+
+            EnsureConfig();
+            bool soundEnabled = config != null && config.ShowNotificationSound;
+
+            // Create fake achievement matching selected tier
+            var fakeAchievement = CreateFakeAchievementForTier(selectedTier);
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    var window = new AchievementNotificationWindow(fakeAchievement, playSound: soundEnabled);
+                    window.ShowAnimated();
+
+                    var logMsg = string.Format("TEST: Tier '{0}' notification for '{1}' (sound: {2})",
+                        selectedTier, fakeAchievement.Name, soundEnabled ? "on" : "off");
+                    AppendLogText("[TEST  ] " + logMsg, LogEntryType.New);
+
+                    var logPath = Path.Combine(playniteApi.Paths.ExtensionsDataPath, "achievement_tracker_debug.log");
+                    try
+                    {
+                        File.AppendAllText(logPath, string.Format("[{0}] {1}{2}",
+                            DateTime.Now.ToString("HH:mm:ss"), logMsg, Environment.NewLine));
+                    }
+                    catch { }
+                }
+                catch (Exception ex)
+                {
+                    AppendLogText("[ERROR] Tier test notification failed: " + ex.Message, LogEntryType.Error);
+                }
+
+                SendTestTierBtn.IsEnabled = true;
+                SendTestTierBtn.Content = "Send Test";
+            });
+        }
+
+        private Achievement CreateFakeAchievementForTier(string tier)
+        {
+            double rarity;
+            string headerText;
+            switch (tier)
+            {
+                case "Gold":
+                    rarity = 3.0;
+                    headerText = "GOLD TIER ACHIEVEMENT";
+                    break;
+                case "Silver":
+                    rarity = 15.0;
+                    headerText = "SILVER TIER ACHIEVEMENT";
+                    break;
+                default:
+                    rarity = 50.0;
+                    headerText = "BRONZE TIER ACHIEVEMENT";
+                    break;
+            }
+
+            return new Achievement
+            {
+                Id = "TEST_" + tier,
+                Name = headerText,
+                Description = "This is a test notification for " + tier.ToLower() + " tier rarity (" + rarity.ToString("0.#") + "%)",
+                IsUnlocked = true,
+                IconUrl = "",
+                Rarity = rarity
+            };
+        }
+
+        private string selectedTier = "Bronze";
         // ─────────────────────────────────────────────────────────────
         // Helpers
         // ─────────────────────────────────────────────────────────────

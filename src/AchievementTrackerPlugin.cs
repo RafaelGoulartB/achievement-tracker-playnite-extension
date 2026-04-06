@@ -270,7 +270,7 @@ namespace AchievementTracker
         {
             try
             {
-                var window = new AchievementNotificationWindow(achievement);
+                var window = new AchievementNotificationWindow(achievement, playSound: _config != null && _config.ShowNotificationSound);
                 window.ShowAnimated();
             }
             catch (Exception ex)

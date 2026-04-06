@@ -15,7 +15,7 @@
             Padding="16"
             Margin="10"
             Background="#1A1A2E"
-            BorderBrush="#FFD700"
+            BorderBrush="#CD7F32"
             BorderThickness="1"
             Opacity="0">
         <Border.Effect>
@@ -43,11 +43,22 @@
 
             <!-- Text Content -->
             <StackPanel Grid.Column="1" VerticalAlignment="Top" Margin="0,0,0,0">
-                <TextBlock Text="ACHIEVEMENT UNLOCKED"
-                           Foreground="#FFD700"
-                           FontSize="10"
-                           FontWeight="SemiBold"
-                           Margin="0,0,0,4" />
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <TextBlock x:Name="TrophyIndicator"
+                               Text="★ "
+                               FontSize="10"
+                               Foreground="#FFD700"
+                               FontWeight="Bold"
+                               VerticalAlignment="Center"
+                               Margin="0,0,2,0"
+                               Visibility="Collapsed" />
+                    <TextBlock x:Name="HeaderTextBlock"
+                               Text="ACHIEVEMENT UNLOCKED"
+                               Foreground="#CD7F32"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                </StackPanel>
                 <TextBlock x:Name="NameTextBlock"
                            Text=""
                            Foreground="#FFFFFF"
