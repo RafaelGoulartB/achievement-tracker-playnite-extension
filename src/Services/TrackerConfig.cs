@@ -166,7 +166,7 @@ namespace AchievementTracker.Services
             PollingIntervalSeconds = 10;
             NotificationTimeoutSeconds = 5;
             ShowNotificationSound = true;
-            NotificationVolumePercent = 50.0;
+            NotificationVolumePercent = 40.0;
         }
 
         private void Apply(TrackerConfig other)

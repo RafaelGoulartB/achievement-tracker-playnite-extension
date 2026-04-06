@@ -28,12 +28,13 @@ namespace AchievementTracker.UI
         // Snapshot diff tracking (US-004)
         private int lastDiffCount = 0;
 
-        public DebugTrackingWindow(IPlayniteAPI api, Game game, AchievementTrackerManager manager = null)
+        public DebugTrackingWindow(IPlayniteAPI api, Game game, AchievementTrackerManager manager = null, TrackerConfig sharedConfig = null)
         {
             InitializeComponent();
             playniteApi = api;
             this.game = game;
             this.manager = manager;
+            config = sharedConfig;
 
             debugLogPath = Path.Combine(playniteApi.Paths.ExtensionsDataPath, "achievement_tracker_debug.log");
 
@@ -51,7 +52,7 @@ namespace AchievementTracker.UI
             IntervalText.Text = "—";
             LastScanText.Text = "—";
 
-            // Load config for US-007
+            // Load config for US-007 (uses sharedConfig if provided, otherwise creates own instance)
             EnsureConfig();
             RefreshConfigDisplay();
 
@@ -438,7 +439,8 @@ namespace AchievementTracker.UI
             {
                 try
                 {
-                    var window = new AchievementNotificationWindow(achievement, playSound: config != null && config.ShowNotificationSound);
+                    double volume = config != null ? config.NotificationVolumePercent : 50.0;
+                    var window = new AchievementNotificationWindow(achievement, playSound: config != null && config.ShowNotificationSound, notificationVolumePercent: volume);
                     window.ShowAnimated();
                 }
                 catch (Exception ex)
@@ -502,11 +504,20 @@ namespace AchievementTracker.UI
 
             PollingIntervalBox.Text = config.PollingIntervalSeconds.ToString();
             NotificationTimeoutBox.Text = config.NotificationTimeoutSeconds.ToString();
+
+            // Guard against firing Checked/Unchanged events during initialization
+            isSoundToggleUpdating = true;
             ConfigSoundCheck.IsChecked = config.ShowNotificationSound;
+            if (TestSoundCheck != null) TestSoundCheck.IsChecked = config.ShowNotificationSound;
+            isSoundToggleUpdating = false;
+
+            // Guard against firing ValueChanged during initialization — would trigger Save() for no-op
+            isVolumeSliderUpdating = true;
             if (VolumeSlider != null) VolumeSlider.Value = config.NotificationVolumePercent;
+            isVolumeSliderUpdating = false;
+
             UpdateVolumeText();
             UpdateVolumeSliderEnabled();
-            if (TestSoundCheck != null) TestSoundCheck.IsChecked = config.ShowNotificationSound;
         }
 
         private void OnReloadConfig(object sender, RoutedEventArgs e)
@@ -548,8 +559,18 @@ namespace AchievementTracker.UI
 
             config.NotificationTimeoutSeconds = newTimeout;
 
+            // Ensure sound and volume settings are also captured from UI in case they were changed
+            if (ConfigSoundCheck != null)
+            {
+                config.ShowNotificationSound = ConfigSoundCheck.IsChecked == true;
+            }
+            if (VolumeSlider != null)
+            {
+                config.NotificationVolumePercent = VolumeSlider.Value;
+            }
+
             config.Save();
-            AppendLogText("[INFO  ] Config saved to disk (interval=" + newInterval + "s, timeout=" + newTimeout + "s).", LogEntryType.Info);
+            AppendLogText("[INFO  ] Config saved to disk (interval=" + newInterval + "s, timeout=" + newTimeout + "s, sound=" + (config.ShowNotificationSound ? "on" : "off") + ", volume=" + (int)config.NotificationVolumePercent + "%).", LogEntryType.Info);
             MessageBox.Show("Configuration saved successfully.", "Save Config",
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -595,6 +616,7 @@ namespace AchievementTracker.UI
         // ─────────────────────────────────────────────────────────────
 
         private bool isSoundToggleUpdating = false;
+        private bool isVolumeSliderUpdating = false;
 
         private void OnSoundToggleChanged(object sender, RoutedEventArgs e)
         {
@@ -622,7 +644,7 @@ namespace AchievementTracker.UI
 
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (config == null) return;
+            if (config == null || isVolumeSliderUpdating) return;
             config.NotificationVolumePercent = e.NewValue;
             config.Save();
             UpdateVolumeText();
@@ -694,6 +716,7 @@ namespace AchievementTracker.UI
 
             EnsureConfig();
             bool soundEnabled = config != null && config.ShowNotificationSound;
+            double volume = config != null ? config.NotificationVolumePercent : 50.0;
 
             // Create fake achievement matching selected tier
             var fakeAchievement = CreateFakeAchievementForTier(selectedTier);
@@ -702,11 +725,11 @@ namespace AchievementTracker.UI
             {
                 try
                 {
-                    var window = new AchievementNotificationWindow(fakeAchievement, playSound: soundEnabled);
+                    var window = new AchievementNotificationWindow(fakeAchievement, playSound: soundEnabled, notificationVolumePercent: volume);
                     window.ShowAnimated();
 
-                    var logMsg = string.Format("TEST: Tier '{0}' notification for '{1}' (sound: {2})",
-                        selectedTier, fakeAchievement.Name, soundEnabled ? "on" : "off");
+                    var logMsg = string.Format("TEST: Tier '{0}' notification for '{1}' (sound: {2}, volume: {3}%)",
+                        selectedTier, fakeAchievement.Name, soundEnabled ? "on" : "off", (int)volume);
                     AppendLogText("[TEST  ] " + logMsg, LogEntryType.New);
 
                     var logPath = Path.Combine(playniteApi.Paths.ExtensionsDataPath, "achievement_tracker_debug.log");

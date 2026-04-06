@@ -188,7 +188,7 @@ namespace AchievementTracker
                         var game = args.Games.FirstOrDefault();
                         if (game != null)
                         {
-                            var window = new DebugTrackingWindow(PlayniteApi, game, _trackerManager);
+                            var window = new DebugTrackingWindow(PlayniteApi, game, _trackerManager, _config);
                             window.ShowDialog();
                         }
                     }
