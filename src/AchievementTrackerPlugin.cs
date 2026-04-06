@@ -172,6 +172,20 @@ namespace AchievementTracker
                             window.ShowDialog();
                         }
                     }
+                },
+                new GameMenuItem
+                {
+                    Description = "Debug Achievement Tracker",
+                    MenuSection = "Achievement Tracker",
+                    Action = (a) =>
+                    {
+                        var game = args.Games.FirstOrDefault();
+                        if (game != null)
+                        {
+                            var window = new DebugTrackingWindow(PlayniteApi, game, _trackerManager);
+                            window.ShowDialog();
+                        }
+                    }
                 }
             };
         }
