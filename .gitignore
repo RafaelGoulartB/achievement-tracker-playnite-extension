@@ -45,3 +45,7 @@ _ReSharper*/
 *.exe
 # Se quiser ignorar a DLL gerada na raiz, descomente a linha abaixo
 # *.dll
+
+.claude
+.skills
+.spec
