@@ -371,29 +371,59 @@ namespace AchievementTracker.UI
                     }
                     else
                     {
-                        // Use the same notification pipeline as OnAchievementUnlocked
-                        ShowTestNotification(target);
-
-                        // Log entry
-                        var logMsg = string.Format("TEST: Sent test notification for achievement '{0}'", target.Name);
-                        try
-                        {
-                            var logPath = Path.Combine(playniteApi.Paths.ExtensionsDataPath, "achievement_tracker_debug.log");
-                            File.AppendAllText(logPath, string.Format("[{0}] {1}{2}", DateTime.Now.ToString("HH:mm:ss"), logMsg, Environment.NewLine));
-                        }
-                        catch { }
-
+                        // Log entry before delay
+                        var logMsg = string.Format("TEST: Sending notification for '{0}' in 3 seconds...", target.Name);
                         AppendLogText("[TEST  ] " + logMsg, LogEntryType.New);
+
+                        // 3-second countdown so user can switch to game window
+                        var countdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                        int remaining = 3;
+                        var btnContent = TestNotificationBtn.Content;
+                        TestNotificationBtn.Content = "Delaying... " + remaining + "s";
+
+                        EventHandler countdownTick = null;
+                        countdownTick = (s2, e3) =>
+                        {
+                            remaining--;
+                            if (remaining <= 0)
+                            {
+                                countdownTimer.Stop();
+                                TestNotificationBtn.Content = "Sending...";
+
+                                // Use the same notification pipeline as OnAchievementUnlocked
+                                ShowTestNotification(target);
+
+                                // Log entry
+                                var logPath = Path.Combine(playniteApi.Paths.ExtensionsDataPath, "achievement_tracker_debug.log");
+                                var fullLogMsg = string.Format("TEST: Sent test notification for achievement '{0}'", target.Name);
+                                try
+                                {
+                                    File.AppendAllText(logPath, string.Format("[{0}] {1}{2}", DateTime.Now.ToString("HH:mm:ss"), fullLogMsg, Environment.NewLine));
+                                }
+                                catch { }
+
+                                AppendLogText("[TEST  ] " + fullLogMsg, LogEntryType.New);
+                                TestNotificationBtn.IsEnabled = true;
+                                TestNotificationBtn.Content = "Send Test Notification";
+                            }
+                            else
+                            {
+                                TestNotificationBtn.Content = "Delaying... " + remaining + "s";
+                            }
+                        };
+
+                        countdownTimer.Tick += countdownTick;
+                        countdownTimer.Start();
                     }
                 }
                 catch (Exception ex)
                 {
                     AppendLogText("[ERROR] Test notification failed: " + ex.Message, LogEntryType.Error);
+                    TestNotificationBtn.IsEnabled = true;
+                    TestNotificationBtn.Content = "Send Test Notification";
                 }
                 finally
                 {
-                    TestNotificationBtn.IsEnabled = true;
-                    TestNotificationBtn.Content = "Send Test Notification";
                     scanTimer.Stop();
                 }
             };
