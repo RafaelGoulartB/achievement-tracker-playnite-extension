@@ -112,6 +112,12 @@ namespace AchievementTracker
                     control.SetGame(selected);
                 }
 
+                // Pass config if already initialized
+                if (_config != null)
+                {
+                    control.SetConfig(_config);
+                }
+
                 return control;
             }
             return null;
@@ -223,6 +229,15 @@ namespace AchievementTracker
             // StartTracking already calls StopTracking internally if active
             _trackerManager.StartTracking(game);
 
+            // Push config to control so sound settings appear in UI
+            if (_currentControl != null && _config != null)
+            {
+                _currentControl.Dispatcher.Invoke(() =>
+                {
+                    _currentControl.SetConfig(_config);
+                });
+            }
+
             // Wire up achievement unlock event for future notification display
             _trackerManager.AchievementUnlocked += OnAchievementUnlocked;
         }
@@ -270,7 +285,9 @@ namespace AchievementTracker
         {
             try
             {
-                var window = new AchievementNotificationWindow(achievement, playSound: _config != null && _config.ShowNotificationSound);
+                bool playSound = _config != null && _config.ShowNotificationSound;
+                double volume = _config != null ? _config.NotificationVolumePercent : 50.0;
+                var window = new AchievementNotificationWindow(achievement, playSound: playSound, notificationVolumePercent: volume);
                 window.ShowAnimated();
             }
             catch (Exception ex)

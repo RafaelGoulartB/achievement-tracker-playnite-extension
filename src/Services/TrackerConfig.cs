@@ -35,10 +35,16 @@ namespace AchievementTracker.Services
         public int NotificationTimeoutSeconds { get; set; }
 
         /// <summary>
-        /// Whether to play a system sound on notification. Default: false.
-        /// Controls System.Media.SystemSounds.Asterisk.Play() in ShowAnimated().
+        /// Whether to play a notification sound on unlock. Default: true.
+        /// Controls sound playback in AchievementNotificationWindow.ShowAnimated().
         /// </summary>
         public bool ShowNotificationSound { get; set; }
+
+        /// <summary>
+        /// Notification volume percentage. Default: 50.0, range: 0.0-100.0.
+        /// Used by AchievementNotificationWindow to scale WAV playback volume.
+        /// </summary>
+        public double NotificationVolumePercent { get; set; }
 
         /// <summary>
         /// Creates a TrackerConfig that loads from (or creates defaults at) the
@@ -159,7 +165,8 @@ namespace AchievementTracker.Services
             Enabled = true;
             PollingIntervalSeconds = 10;
             NotificationTimeoutSeconds = 5;
-            ShowNotificationSound = false;
+            ShowNotificationSound = true;
+            NotificationVolumePercent = 50.0;
         }
 
         private void Apply(TrackerConfig other)
@@ -168,9 +175,17 @@ namespace AchievementTracker.Services
             PollingIntervalSeconds = Clamp(other.PollingIntervalSeconds, 5, 120);
             NotificationTimeoutSeconds = Math.Max(1, other.NotificationTimeoutSeconds);
             ShowNotificationSound = other.ShowNotificationSound;
+            NotificationVolumePercent = ClampDouble(other.NotificationVolumePercent, 0.0, 100.0);
         }
 
         private static int Clamp(int value, int min, int max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
+
+        private static double ClampDouble(double value, double min, double max)
         {
             if (value < min) return min;
             if (value > max) return max;

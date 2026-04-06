@@ -503,6 +503,9 @@ namespace AchievementTracker.UI
             PollingIntervalBox.Text = config.PollingIntervalSeconds.ToString();
             NotificationTimeoutBox.Text = config.NotificationTimeoutSeconds.ToString();
             ConfigSoundCheck.IsChecked = config.ShowNotificationSound;
+            if (VolumeSlider != null) VolumeSlider.Value = config.NotificationVolumePercent;
+            UpdateVolumeText();
+            UpdateVolumeSliderEnabled();
             if (TestSoundCheck != null) TestSoundCheck.IsChecked = config.ShowNotificationSound;
         }
 
@@ -608,8 +611,64 @@ namespace AchievementTracker.UI
             TestSoundCheck.IsChecked = enabled;
             ConfigSoundCheck.IsChecked = enabled;
             isSoundToggleUpdating = false;
+            UpdateVolumeSliderEnabled();
 
             AppendLogText("[CONFIG] Notification sound " + (enabled ? "enabled" : "disabled"), LogEntryType.Info);
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Sound preview & volume (moved from AchievementTrackerControl)
+        // ─────────────────────────────────────────────────────────────
+
+        private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (config == null) return;
+            config.NotificationVolumePercent = e.NewValue;
+            config.Save();
+            UpdateVolumeText();
+        }
+
+        private void OnPreviewSoundClick(object sender, RoutedEventArgs e)
+        {
+            if (config == null || VolumeSlider == null || ConfigSoundCheck == null) return;
+            if (ConfigSoundCheck.IsChecked != true) return;
+            double volume = VolumeSlider.Value;
+            if (volume <= 0.0) return;
+            var wavPath = ResolveWavPath();
+            AchievementNotificationWindow.PlayNotificationSound(wavPath, volume);
+        }
+
+        private void UpdateVolumeText()
+        {
+            if (VolumeText != null && VolumeSlider != null)
+            {
+                VolumeText.Text = string.Format("{0}%", (int)VolumeSlider.Value);
+            }
+        }
+
+        private void UpdateVolumeSliderEnabled()
+        {
+            if (VolumeSlider != null && ConfigSoundCheck != null)
+            {
+                VolumeSlider.IsEnabled = ConfigSoundCheck.IsChecked == true;
+                if (PreviewButton != null) PreviewButton.IsEnabled = ConfigSoundCheck.IsChecked == true;
+            }
+        }
+
+        private string ResolveWavPath()
+        {
+            try
+            {
+                var assemblyLocation = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+                var wavPath = Path.Combine(assemblyDir, "resources", "achievement.wav");
+                if (File.Exists(wavPath))
+                {
+                    return wavPath;
+                }
+            }
+            catch { }
+            return null;
         }
 
         // ─────────────────────────────────────────────────────────────

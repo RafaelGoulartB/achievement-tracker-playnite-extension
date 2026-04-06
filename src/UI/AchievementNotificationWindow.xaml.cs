@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -7,6 +9,9 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using AchievementTracker.Models;
+using NAudio.Wave;
+
+using System.Threading;
 
 namespace AchievementTracker.UI
 {
@@ -25,12 +30,14 @@ namespace AchievementTracker.UI
         private DispatcherTimer dismissTimer;
         private readonly int timeoutSeconds;
         private readonly bool playSound;
+        private readonly double notificationVolumePercent;
         private bool isDismissing;
 
-        public AchievementNotificationWindow(Achievement achievement, int timeoutSeconds = 5, bool playSound = false)
+        public AchievementNotificationWindow(Achievement achievement, int timeoutSeconds = 5, bool playSound = false, double notificationVolumePercent = 50.0)
         {
             this.timeoutSeconds = timeoutSeconds;
             this.playSound = playSound;
+            this.notificationVolumePercent = notificationVolumePercent;
             InitializeComponent();
 
             // Populate content
@@ -106,7 +113,7 @@ namespace AchievementTracker.UI
             // Play notification sound if enabled
             if (playSound)
             {
-                System.Media.SystemSounds.Asterisk.Play();
+                PlayNotificationSound();
             }
 
             Show();
@@ -211,6 +218,87 @@ namespace AchievementTracker.UI
         {
             Left = 10;
             Top = 10;
+        }
+
+        /// <summary>
+        /// Resolves the path to achievement.wav relative to the extension DLL.
+        /// Returns the full path if the file exists, null otherwise.
+        /// </summary>
+        private static string ResolveWavPath()
+        {
+            try
+            {
+                var assemblyLocation = Assembly.GetExecutingAssembly().Location;
+                var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+                var wavPath = Path.Combine(assemblyDir, "resources", "achievement.wav");
+                if (File.Exists(wavPath))
+                {
+                    return wavPath;
+                }
+            }
+            catch
+            {
+                // Ignore resolution errors
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Plays the achievement notification WAV file at the configured volume.
+        /// Runs on a background thread to avoid blocking UI animations.
+        /// Skips playback entirely when volume is 0 or file is missing.
+        /// Uses NAudio for clean volume control without dependencies on system volume.
+        /// </summary>
+        internal static void PlayNotificationSound(string wavPath, double volumePercent)
+        {
+            // Skip if volume is 0 or file doesn't exist
+            if (volumePercent <= 0.0)
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(wavPath) || !File.Exists(wavPath))
+            {
+                return;
+            }
+
+            // Run on background thread to avoid blocking UI
+            Thread soundThread = new Thread(() =>
+            {
+                try
+                {
+                    var volume = (float)(volumePercent / 100.0);
+                    using (var reader = new AudioFileReader(wavPath))
+                    {
+                        reader.Volume = volume;
+                        using (var output = new WaveOutEvent())
+                        {
+                            output.Init(reader);
+                            output.Play();
+                            // Wait for playback to complete
+                            while (output.PlaybackState == PlaybackState.Playing)
+                            {
+                                Thread.Sleep(50);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // Graceful fallback: sound errors are silently ignored
+                }
+            });
+            soundThread.IsBackground = true;
+            soundThread.Start();
+        }
+
+        /// <summary>
+        /// Plays the achievement notification sound at the configured volume.
+        /// </summary>
+        private void PlayNotificationSound()
+        {
+            var wavPath = ResolveWavPath();
+            PlayNotificationSound(wavPath, notificationVolumePercent);
         }
 
         /// <summary>

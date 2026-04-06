@@ -70,7 +70,7 @@
             </StackPanel>
         </Border>
 
-        <!-- Config Display and Edit (US-007) -->
+        <!-- Config Display and Edit (US-007 / US-004) -->
         <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,8">
             <StackPanel>
                 <TextBlock Text="Configuration" FontSize="14" FontWeight="Bold" Foreground="#89B4FA" Margin="0,0,0,8"/>
@@ -84,6 +84,7 @@
                         <RowDefinition/>
                         <RowDefinition/>
                         <RowDefinition/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Enabled:" Foreground="#6C7086"/>
                     <TextBlock Grid.Row="0" Grid.Column="1" x:Name="ConfigEnabledText"/>
@@ -101,6 +102,19 @@
                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Notification Sound:" Foreground="#6C7086"/>
                     <CheckBox Grid.Row="3" Grid.Column="1" x:Name="ConfigSoundCheck" Content="" Background="#1E1E2E" Foreground="#CDD6F4"
                               Checked="OnSoundToggleChanged" Unchecked="OnSoundToggleChanged"/>
+
+                    <!-- Volume settings (moved from AchievementTrackerControl) -->
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Volume:" Foreground="#6C7086" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                    <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" Value="50" Width="200"
+                                VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged"
+                                IsSnapToTickEnabled="True" TickFrequency="1" />
+                        <TextBlock x:Name="VolumeText" Text="50%" Foreground="#A6E3A1" FontSize="12"
+                                   VerticalAlignment="Center" Width="40" Margin="8,0,0,0" />
+                        <Button x:Name="PreviewButton" Content="Preview" Background="#89B4FA" Foreground="#1E1E2E"
+                                FontSize="11" Padding="8,4" Margin="8,0,0,0" Cursor="Hand"
+                                Click="OnPreviewSoundClick" />
+                    </StackPanel>
                 </Grid>
             </StackPanel>
         </Border>
