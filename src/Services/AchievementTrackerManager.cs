@@ -24,13 +24,8 @@ namespace AchievementTracker.Services
         private Game currentGame;
         private string currentAppId;
         private Dictionary<string, bool> previousSnapshot; // achievementId -> wasUnlocked
-        private Dictionary<string, Achievement> achievementCache; // full achievement data
-
-        // Local-only poll state (for US-003: local file polling)
-        private Dictionary<string, DateTime?> previousLocalSnapshot; // achievementId -> unlockTimestamp from local sources
-
-        // Steam-only poll state (for US-004: Steam Community polling)
-        private Dictionary<string, bool> previousSteamSnapshot; // achievementId -> wasUnlockedOnSteam
+        private Dictionary<string, Achievement> achievementCache; // full achievement data (Steam master list)
+        private List<SnapshotDiffEntry> _diffHistory; // last scan's diff results
 
         // Default polling interval: 10 seconds
         private readonly TrackerConfig config;
@@ -73,8 +68,6 @@ namespace AchievementTracker.Services
             config = cfg;
             previousSnapshot = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             achievementCache = new Dictionary<string, Achievement>(StringComparer.OrdinalIgnoreCase);
-            previousLocalSnapshot = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-            previousSteamSnapshot = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             notificationHistory = history;
         }
 
@@ -147,8 +140,6 @@ namespace AchievementTracker.Services
                 currentAppId = null;
                 previousSnapshot = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 achievementCache = new Dictionary<string, Achievement>(StringComparer.OrdinalIgnoreCase);
-                previousLocalSnapshot = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-                previousSteamSnapshot = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 isScanning = false;
                 _lastScanTime = null;
             }
@@ -170,11 +161,9 @@ namespace AchievementTracker.Services
             var newUnlocks = new List<Achievement>();
 
             Game game;
-            string appId;
             lock (lockObj)
             {
                 game = currentGame;
-                appId = currentAppId;
             }
 
             if (game == null) return newUnlocks;
@@ -196,54 +185,53 @@ namespace AchievementTracker.Services
                 }
             }
 
+            // Build diff for debug window
+            var diffEntries = new List<SnapshotDiffEntry>();
+
             // Compare: find achievements that were previously locked and are now unlocked
             foreach (var kvp in currentSnapshot)
             {
-                if (!kvp.Value) continue; // still locked
-
+                string name = ResolveAchievementName(kvp.Key);
+                bool nowUnlocked = kvp.Value;
                 bool wasUnlocked;
-                if (previousSnapshot.TryGetValue(kvp.Key, out wasUnlocked))
+                bool wasPreviouslyKnown = previousSnapshot.TryGetValue(kvp.Key, out wasUnlocked);
+
+                if (nowUnlocked)
                 {
-                    if (!wasUnlocked)
+                    if (!wasPreviouslyKnown)
+                    {
+                        // New entry that is already unlocked -> treat as new detect
+                        Achievement fullAch = ResolveAchievement(kvp.Key);
+                        newUnlocks.Add(fullAch);
+                    }
+                    else if (!wasUnlocked)
                     {
                         // Was locked, now unlocked -> new achievement!
                         Achievement fullAch = ResolveAchievement(kvp.Key);
                         newUnlocks.Add(fullAch);
+
+                        diffEntries.Add(new SnapshotDiffEntry
+                        {
+                            AchievementName = name,
+                            PreviousState = "Locked",
+                            CurrentState = "Unlocked",
+                            Source = "Tracked"
+                        });
                     }
                 }
-                else
+                else if (wasPreviouslyKnown && wasUnlocked)
                 {
-                    // New entry that is already unlocked -> treat as new detect
-                    Achievement fullAch = ResolveAchievement(kvp.Key);
-                    newUnlocks.Add(fullAch);
+                    diffEntries.Add(new SnapshotDiffEntry
+                    {
+                        AchievementName = name,
+                        PreviousState = "Unlocked",
+                        CurrentState = "Locked",
+                        Source = "Tracked"
+                    });
                 }
             }
 
-            // US-003: Poll local emulator files for newly unlocked achievements
-            var localNewUnlocks = scanner.PollLocalUnlocks(
-                game, appId, previousLocalSnapshot, achievementCache, out var newLocalSnapshot);
-            foreach (var localAch in localNewUnlocks)
-            {
-                newUnlocks.Add(localAch);
-                // Also mark it in the main snapshot so it won't fire again
-                string localKey = GetAchievementKey(localAch);
-                if (!string.IsNullOrEmpty(localKey))
-                {
-                    currentSnapshot[localKey] = true;
-                }
-            }
-            previousLocalSnapshot = newLocalSnapshot;
-
-            // US-004: Poll Steam Community for newly unlocked achievements
-            var steamNewUnlocks = PollSteamUnlocks(scanner, game, appId);
-            foreach (var steamAch in steamNewUnlocks)
-            {
-                string steamKey = GetAchievementKey(steamAch);
-                if (!string.IsNullOrEmpty(steamKey) && !newUnlocks.Contains(steamAch, new AchievementIdComparer()))
-                {
-                    newUnlocks.Add(steamAch);
-                }
-            }
+            _diffHistory = diffEntries;
 
             // Update previous snapshot
             previousSnapshot = currentSnapshot;
@@ -262,67 +250,7 @@ namespace AchievementTracker.Services
         /// </summary>
         public List<SnapshotDiffEntry> GetSnapshotDiffInfo()
         {
-            var entries = new List<SnapshotDiffEntry>();
-
-            lock (lockObj)
-            {
-                foreach (var kvp in previousSnapshot)
-                {
-                    string name = ResolveAchievementName(kvp.Key);
-                    bool wasLocked = !kvp.Value;
-
-                    // Detect Steam state change
-                    bool steamWasLocked;
-                    if (previousSteamSnapshot.TryGetValue(kvp.Key, out steamWasLocked))
-                    {
-                        // Check if current state differs from previous Steam snapshot
-                        bool isUnlockedNow = kvp.Value;
-                        if (steamWasLocked != isUnlockedNow)
-                        {
-                            entries.Add(new SnapshotDiffEntry
-                            {
-                                AchievementName = name,
-                                PreviousState = steamWasLocked ? "Locked" : "Unlocked",
-                                CurrentState = isUnlockedNow ? "Unlocked" : "Locked",
-                                Source = "Steam"
-                            });
-                        }
-                    }
-
-                    // Detect Local state change
-                    DateTime? localTimeWas;
-                    if (previousLocalSnapshot.TryGetValue(kvp.Key, out localTimeWas))
-                    {
-                        bool wasLockedLocal = !localTimeWas.HasValue;
-                        if (wasLockedLocal && !wasLocked)
-                        {
-                            // Only add if not already added from Steam
-                            bool alreadyAdded = false;
-                            foreach (var e in entries)
-                            {
-                                if (e.AchievementName == name)
-                                {
-                                    alreadyAdded = true;
-                                    e.Source = e.Source + "+Local";
-                                    break;
-                                }
-                            }
-                            if (!alreadyAdded)
-                            {
-                                entries.Add(new SnapshotDiffEntry
-                                {
-                                    AchievementName = name,
-                                    PreviousState = "Locked",
-                                    CurrentState = "Unlocked",
-                                    Source = "Local"
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-
-            return entries;
+            return _diffHistory ?? new List<SnapshotDiffEntry>();
         }
 
         private string ResolveAchievementName(string key)
@@ -339,74 +267,12 @@ namespace AchievementTracker.Services
         // PRIVATE
         // ─────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// US-004: Polls Steam Community API for newly unlocked achievements.
-        /// Re-fetches achievement data from Steam and compares IsUnlocked state
-        /// against the previous Steam snapshot. Returns only newly unlocked items.
-        /// </summary>
-        private List<Achievement> PollSteamUnlocks(AchievementScanner scanner, Game game, string appId)
-        {
-            var newUnlocks = new List<Achievement>();
-
-            try
-            {
-                // Re-fetch from Steam — use ScanForAchievements which hits Steam Community API
-                // but first, temporarily clear the local snapshot so we get clean Steam data
-                var achievements = scanner.ScanForAchievements(game);
-
-                // Build current Steam unlock state (only consider Steam as the source of truth)
-                // We know these came from ScanForAchievements which merges local data, so we need
-                // to filter — achievements unlocked via Steam would be in the master list
-                var currentSteamState = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-                foreach (var ach in achievements)
-                {
-                    string key = GetAchievementKey(ach);
-                    if (!string.IsNullOrEmpty(key))
-                    {
-                        currentSteamState[key] = ach.IsUnlocked;
-                    }
-                }
-
-                // Compare: find achievements that were locked on Steam and are now unlocked
-                foreach (var kvp in currentSteamState)
-                {
-                    if (!kvp.Value) continue; // still locked
-
-                    bool wasUnlocked;
-                    bool wasPreviouslySeen = previousSteamSnapshot.TryGetValue(kvp.Key, out wasUnlocked);
-
-                    // New unlock: either not previously seen with unlocked state, or was locked and is now unlocked
-                    if (!wasPreviouslySeen || !wasUnlocked)
-                    {
-                        // Verify this unlock came from Steam (not local-only) by checking if it exists in cache
-                        // and was not already flagged by local polling
-                        Achievement fullAch = ResolveAchievement(kvp.Key);
-                        if (!newUnlocks.Contains(fullAch, new AchievementIdComparer()))
-                        {
-                            newUnlocks.Add(fullAch);
-                        }
-                    }
-                }
-
-                previousSteamSnapshot = new Dictionary<string, bool>(currentSteamState, StringComparer.OrdinalIgnoreCase);
-            }
-            catch (Exception ex)
-            {
-                LogError(string.Format("Steam poll failed for '{0}': {1}", game.Name, ex.Message));
-                // Continue without new unlocks — do not crash
-            }
-
-            return newUnlocks;
-        }
-
         private void PerformInitialScan()
         {
             Game game;
-            string appId;
             lock (lockObj)
             {
                 game = currentGame;
-                appId = currentAppId;
             }
 
             if (game == null) return;
@@ -424,20 +290,6 @@ namespace AchievementTracker.Services
                 {
                     previousSnapshot[key] = ach.IsUnlocked;
                     achievementCache[key] = ach;
-                }
-            }
-
-            // Initialize local unlock snapshot (US-003)
-            previousLocalSnapshot = scanner.CollectLocalUnlockStatus(game, appId);
-
-            // Initialize Steam snapshot (US-004) — record baseline Steam unlock state
-            previousSteamSnapshot = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-            foreach (var ach in achievements)
-            {
-                string key = GetAchievementKey(ach);
-                if (!string.IsNullOrEmpty(key))
-                {
-                    previousSteamSnapshot[key] = ach.IsUnlocked;
                 }
             }
 
