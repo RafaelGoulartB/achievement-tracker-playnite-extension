@@ -332,8 +332,86 @@ namespace AchievementTracker.Services
         // Local unlock status collection
         // ─────────────────────────────────────────────────────────────────────
 
-        private void CollectLocalUnlockStatus(Game game, string appId,
-            Dictionary<string, DateTime?> unlockedIds, 
+        /// <summary>
+        /// Builds a dictionary of locally unlocked achievement IDs by scanning
+        /// all supported emulator sources (CodexFiles, INIs, Goldberg, etc.).
+        /// </summary>
+        /// <param name="game">The game to scan.</param>
+        /// <param name="appId">Known Steam AppId (can be null, reduces external scans).</param>
+        /// <param name="dbg">Optional debug info to populate.</param>
+        /// <returns>Dictionary mapping achievement ID to unlock timestamp (null if unknown).</returns>
+        public Dictionary<string, DateTime?> CollectLocalUnlockStatus(Game game, string appId, ScanDebugInfo dbg = null)
+        {
+            var unlockedIds = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
+            var idToNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            CollectLocalUnlockStatusInternal(game, appId, unlockedIds, idToNameMap, dbg);
+            return unlockedIds;
+        }
+
+        /// <summary>
+        /// Polls local emulator files for newly unlocked achievements since the last poll.
+        /// Compares current local state against the provided previous snapshot.
+        /// </summary>
+        /// <param name="game">The game to scan.</param>
+        /// <param name="appId">Known Steam AppId.</param>
+        /// <param name="previousLocalSnapshot">Previous poll's unlock state dictionary.</param>
+        /// <param name="cachedAchievements">Dictionary of known achievement IDs to full Achievement objects (from Steam/master list).</param>
+        /// <param name="outCurrentSnapshot">Updated local unlock state dictionary (outputs for caller to store).</param>
+        /// <returns>List of full Achievement objects for newly unlocked items.</returns>
+        public List<Achievement> PollLocalUnlocks(Game game, string appId,
+            Dictionary<string, DateTime?> previousLocalSnapshot,
+            Dictionary<string, Achievement> cachedAchievements,
+            out Dictionary<string, DateTime?> outCurrentSnapshot)
+        {
+            var dbg = new ScanDebugInfo { ScanTime = DateTime.Now.ToString("HH:mm:ss") };
+            var currentLocal = CollectLocalUnlockStatus(game, appId, dbg);
+            outCurrentSnapshot = currentLocal;
+
+            var newUnlocks = new List<Achievement>();
+            foreach (var kvp in currentLocal)
+            {
+                // Skip if already seen in previous local poll
+                if (previousLocalSnapshot.ContainsKey(kvp.Key)) continue;
+
+                // Try to resolve full metadata from the cached master list
+                Achievement fullAch = null;
+                Achievement cachedAch;
+                if (cachedAchievements != null && cachedAchievements.TryGetValue(kvp.Key, out cachedAch))
+                {
+                    fullAch = new Achievement
+                    {
+                        Id = cachedAch.Id,
+                        Name = cachedAch.Name,
+                        Description = cachedAch.Description,
+                        IsUnlocked = true,
+                        UnlockTime = kvp.Value ?? DateTime.Now,
+                        IsHidden = cachedAch.IsHidden,
+                        Rarity = cachedAch.Rarity,
+                        IconUrl = cachedAch.IconUrl
+                    };
+                }
+
+                // Fallback: create stub from ID if not found in cache
+                if (fullAch == null)
+                {
+                    fullAch = new Achievement
+                    {
+                        Id = kvp.Key,
+                        Name = kvp.Key,
+                        Description = "",
+                        IsUnlocked = true,
+                        UnlockTime = kvp.Value ?? DateTime.Now
+                    };
+                }
+
+                newUnlocks.Add(fullAch);
+            }
+
+            return newUnlocks;
+        }
+
+        private void CollectLocalUnlockStatusInternal(Game game, string appId,
+            Dictionary<string, DateTime?> unlockedIds,
             Dictionary<string, string> idToNameMap,
             ScanDebugInfo dbg)
         {
@@ -390,6 +468,14 @@ namespace AchievementTracker.Services
                 dbg?.LocalFilesFound.Add(f);
                 MergeSteamLibraryCache(f, unlockedIds);
             }
+        }
+
+        private void CollectLocalUnlockStatus(Game game, string appId,
+            Dictionary<string, DateTime?> unlockedIds,
+            Dictionary<string, string> idToNameMap,
+            ScanDebugInfo dbg)
+        {
+            CollectLocalUnlockStatusInternal(game, appId, unlockedIds, idToNameMap, dbg);
         }
 
         // ─────────────────────────────────────────────────────────────────────

@@ -17,5 +17,20 @@ namespace AchievementTracker.Models
         
         // Optional icon URL or local path
         public string IconUrl { get; set; }
+
+        /// <summary>
+        /// Classifies achievement into visual rarity tier for notification styling.
+        /// Gold: rarity <= 5%, Silver: 5% < rarity <= 25%, Bronze: rarity > 25% or unknown (0).
+        /// </summary>
+        public string RarityTier
+        {
+            get
+            {
+                if (Rarity <= 0) return "Bronze";
+                if (Rarity <= 5.0) return "Gold";
+                if (Rarity <= 25.0) return "Silver";
+                return "Bronze";
+            }
+        }
     }
 }

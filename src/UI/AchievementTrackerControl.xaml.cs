@@ -16,13 +16,23 @@ namespace AchievementTracker.UI
     {
         private readonly IPlayniteAPI playniteApi;
         private readonly AchievementScanner scanner;
+        private TrackerConfig config;
 
-        public AchievementTrackerControl(IPlayniteAPI api)
+        public AchievementTrackerControl(IPlayniteAPI api, TrackerConfig cfg = null)
         {
             InitializeComponent();
             this.playniteApi = api;
             this.scanner = new AchievementScanner(api);
+            this.config = cfg;
             Log("Control created");
+        }
+
+        /// <summary>
+        /// Updates the config reference (e.g., after lazy-init in plugin).
+        /// </summary>
+        public void SetConfig(TrackerConfig cfg)
+        {
+            this.config = cfg;
         }
 
         private void Log(string message)
