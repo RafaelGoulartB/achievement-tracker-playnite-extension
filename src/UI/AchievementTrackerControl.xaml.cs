@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using AchievementTracker.Services;
+using AchievementTracker.Settings;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 

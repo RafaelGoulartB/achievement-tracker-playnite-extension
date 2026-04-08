@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Threading;
 using AchievementTracker.Models;
 using AchievementTracker.Services;
+using AchievementTracker.Settings;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 using System.Windows.Media;

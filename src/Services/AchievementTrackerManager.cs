@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using AchievementTracker.Models;
+using AchievementTracker.Settings;
 
 namespace AchievementTracker.Services
 {
@@ -61,7 +62,7 @@ namespace AchievementTracker.Services
 
         private DateTime? _lastScanTime;
 
-        public AchievementTrackerManager(IPlayniteAPI api, TrackerConfig cfg = null,
+        public AchievementTrackerManager(IPlayniteAPI api, AchievementTracker.Settings.TrackerConfig cfg = null,
             NotificationHistory history = null)
         {
             playniteApi = api;
