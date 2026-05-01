@@ -29,7 +29,7 @@ namespace AchievementTracker.Services
         private List<SnapshotDiffEntry> _diffHistory; // last scan's diff results
 
         // Default polling interval: 10 seconds
-        private readonly TrackerConfig config;
+        private readonly AchievementTracker.Settings.TrackerConfig config;
 
         // Notification history for deduplication across sessions (US-007)
         private readonly NotificationHistory notificationHistory;

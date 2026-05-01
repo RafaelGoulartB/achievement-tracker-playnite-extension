@@ -50,9 +50,17 @@ namespace AchievementTracker.Services
         /// Creates a TrackerConfig that loads from (or creates defaults at) the
         /// given extension data path.
         /// </summary>
-        public TrackerConfig(string extensionDataPath)
+        public TrackerConfig(string extensionDataPath = null)
         {
-            filePath = Path.Combine(extensionDataPath, DefaultFileName);
+            if (extensionDataPath == null)
+            {
+                // Use a temporary path for default config creation
+                filePath = Path.Combine(Path.GetTempPath(), DefaultFileName);
+            }
+            else
+            {
+                filePath = Path.Combine(extensionDataPath, DefaultFileName);
+            }
             Load();
         }
 

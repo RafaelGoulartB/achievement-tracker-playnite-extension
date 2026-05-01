@@ -6,7 +6,14 @@ root = true
 [*]
 indent_style = space
 indent_size = 4
-end_of_line = crlf
+# Mudamos para 'lf' para que o agente de IA consiga dar match no texto
+end_of_line = lf
 charset = utf-8
-trim_trailing_whitespace = false
-insert_final_newline = false
+# Recomendo ativar estes dois para evitar variações invisíveis que quebram o "match"
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{cs,xaml}]
+# Garante que arquivos C# sigam o padrão de indentação que o Gemma 4 prefere
+indent_style = space
+indent_size = 4

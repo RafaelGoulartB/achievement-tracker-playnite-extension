@@ -9,7 +9,14 @@ using System.Windows;
 using System.Windows.Controls;
 using AchievementTracker.Services;
 using AchievementTracker.UI;
-using AchievementTracker.Settings;
+using Playnite.SDK.Events;
+using Playnite.SDK.Models;
+using Playnite.SDK.Plugins;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace AchievementTracker
 {
@@ -27,7 +34,7 @@ namespace AchievementTracker
         private AchievementTracker.Services.NotificationHistory _notificationHistory;
 
         // Config system for polling interval, enable/disable, and notification timeout (US-008)
-        private TrackerConfig _config;
+        private AchievementTracker.Settings.TrackerConfig _config;
 
         public AchievementTrackerPlugin(IPlayniteAPI api) : base(api)
         {
@@ -51,14 +58,12 @@ namespace AchievementTracker
         {
             try
             {
-                _config = new TrackerConfig(
-                    PlayniteApi.Paths.ExtensionsDataPath);
+                _config = new AchievementTracker.Settings.TrackerConfig(PlayniteApi, PlayniteApi.Paths.ExtensionsDataPath);
             }
             catch (Exception ex)
             {
                 Log(string.Format("Failed to load config, using defaults: {0}", ex.Message));
-                _config = new TrackerConfig(
-                    PlayniteApi.Paths.ExtensionsDataPath);
+                _config = new AchievementTracker.Settings.TrackerConfig(PlayniteApi, PlayniteApi.Paths.ExtensionsDataPath);
             }
         }
 

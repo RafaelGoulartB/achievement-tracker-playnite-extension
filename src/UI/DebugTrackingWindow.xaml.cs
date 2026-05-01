@@ -21,7 +21,7 @@ namespace AchievementTracker.UI
         private readonly IPlayniteAPI playniteApi;
         private readonly Game game;
         private DispatcherTimer refreshTimer;
-        private TrackerConfig config;
+        private AchievementTracker.Settings.TrackerConfig config;
         private AchievementTrackerManager manager;
         private NotificationHistory notificationHistory;
         private readonly string debugLogPath;
@@ -29,7 +29,7 @@ namespace AchievementTracker.UI
         // Snapshot diff tracking (US-004)
         private int lastDiffCount = 0;
 
-        public DebugTrackingWindow(IPlayniteAPI api, Game game, AchievementTrackerManager manager = null, TrackerConfig sharedConfig = null)
+        public DebugTrackingWindow(IPlayniteAPI api, Game game, AchievementTrackerManager manager = null, AchievementTracker.Settings.TrackerConfig sharedConfig = null)
         {
             InitializeComponent();
             playniteApi = api;
@@ -489,7 +489,7 @@ namespace AchievementTracker.UI
             {
                 try
                 {
-                    config = new TrackerConfig(playniteApi.Paths.ExtensionsDataPath);
+                    config = new AchievementTracker.Settings.TrackerConfig(playniteApi, playniteApi.Paths.ExtensionsDataPath);
                 }
                 catch { }
             }
