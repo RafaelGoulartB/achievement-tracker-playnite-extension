@@ -114,6 +114,14 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Hydra Metadata JSON -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Label Content="🌐 Hydra API Response (Downloaded JSON)"/>
+                        <TextBox x:Name="HydraMetadataBox" Height="150" FontFamily="Consolas" FontSize="11"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Local files found -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>

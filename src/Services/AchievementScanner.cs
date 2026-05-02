@@ -26,8 +26,8 @@ namespace AchievementTracker.Services
     {
         private readonly IPlayniteAPI playniteApi;
         private const string HYDRA_API_URL = "https://hydra-api-us-east-1.losbroxas.org";
-        public string       DetectedId { get; private set; }
-        public ScanDebugInfo LastDebug  { get; private set; }
+        public string DetectedId { get; private set; }
+        public ScanDebugInfo LastDebug { get; private set; }
 
         public AchievementScanner(IPlayniteAPI api)
         {
@@ -259,6 +259,14 @@ namespace AchievementTracker.Services
                 using (var reader = new StreamReader(stream))
                 {
                     var json = reader.ReadToEnd();
+
+                    // Save raw Hydra JSON for debugging
+                    if (dbg != null)
+                    {
+                        dbg.RawHydraJson = json;
+                        Log($"Hydra raw JSON length: {json.Length} characters");
+                    }
+
                     if (string.IsNullOrEmpty(json))
                     {
                         if (dbg != null) dbg.HydraFetchOk = false; dbg.HydraFetchError = "Empty response";
@@ -277,10 +285,16 @@ namespace AchievementTracker.Services
 
                     foreach (var achJ in achievements)
                     {
+                        // Debug logging
+                        var nameVal = achJ["name"]?.ToString();
+                        var displayNameVal = achJ["displayName"]?.ToString();
+                        var unlockedStr = achJ["unlocked"]?.ToString();
+                        Log($"Hydra achievement: ID='{nameVal}' Name='{displayNameVal}' Unlocked='{unlockedStr}'");
+
                         var ach = new Achievement
                         {
-                            Id = achJ["id"]?.ToString() ?? "",
-                            Name = achJ["name"]?.ToString() ?? "",
+                            Id = achJ["name"]?.ToString() ?? "",
+                            Name = achJ["displayName"]?.ToString() ?? "",
                             Description = achJ["description"]?.ToString() ?? "",
                             IconUrl = achJ["icon"]?.ToString() ?? null,
                             IsHidden = !string.IsNullOrEmpty(achJ["hidden"]?.ToString()) && bool.TryParse(achJ["hidden"]?.ToString(), out var hiddenVal) && hiddenVal,
@@ -289,12 +303,21 @@ namespace AchievementTracker.Services
                             UnlockTime = achJ["unlock_time"]?.ToString() != null ? ParseHydraDateTime(achJ["unlock_time"].ToString()) : null
                         };
 
-                        if (string.IsNullOrEmpty(ach.Id)) continue;
+                        if (string.IsNullOrEmpty(ach.Id))
+                        {
+                            Log($"  SKIPPED - Empty ID for: {displayNameVal}");
+                            continue;
+                        }
 
                         list.Add(ach);
                     }
 
-                    if (dbg != null) { dbg.HydraFetchOk = true; dbg.HydraAchievementCount = list.Count; }
+                    if (dbg != null)
+                    {
+                        dbg.HydraFetchOk = true;
+                        dbg.HydraAchievementCount = list.Count;
+                        Log($"Hydra fetched {achievements.Count} items, {list.Count} added to list");
+                    }
                 }
             }
             catch (WebException ex) when (ex.Response != null)
@@ -419,7 +442,7 @@ namespace AchievementTracker.Services
         private List<Achievement> FetchSteamAchievements(string appId, ScanDebugInfo dbg)
         {
             var list = new List<Achievement>();
-            var url  = $"https://steamcommunity.com/stats/{appId}/achievements?xml=1&l=english";
+            var url = $"https://steamcommunity.com/stats/{appId}/achievements?xml=1&l=english";
             if (dbg != null) dbg.SteamRequestUrl = url;
 
             try
@@ -444,12 +467,12 @@ namespace AchievementTracker.Services
 
                             list.Add(new Achievement
                             {
-                                Id          = id,
-                                Name        = item.Element("name")?.Value ?? id,
+                                Id = id,
+                                Name = item.Element("name")?.Value ?? id,
                                 Description = item.Element("description")?.Value ?? "",
-                                IsHidden    = item.Element("hidden")?.Value == "1",
-                                IconUrl     = item.Element("iconClosed")?.Value,
-                                IsUnlocked  = false
+                                IsHidden = item.Element("hidden")?.Value == "1",
+                                IconUrl = item.Element("iconClosed")?.Value,
+                                IsUnlocked = false
                             });
                         }
                     }
@@ -478,13 +501,13 @@ namespace AchievementTracker.Services
 
                             list.Add(new Achievement
                             {
-                                Id          = name, // fallback to name as ID
-                                Name        = name,
+                                Id = name, // fallback to name as ID
+                                Name = name,
                                 Description = desc,
-                                IsHidden    = desc.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase),
-                                Rarity      = perc,
-                                IconUrl     = icon,
-                                IsUnlocked  = false
+                                IsHidden = desc.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase),
+                                Rarity = perc,
+                                IconUrl = icon,
+                                IsUnlocked = false
                             });
                         }
                     }
@@ -673,8 +696,14 @@ namespace AchievementTracker.Services
                     foreach (var f in Directory.GetFiles(fltDir))
                     {
                         var info = new FileInfo(f);
-                        raw.Add(new Achievement { Id = info.Name, Name = info.Name,
-                            Description = "", IsUnlocked = true, UnlockTime = info.CreationTime });
+                        raw.Add(new Achievement
+                        {
+                            Id = info.Name,
+                            Name = info.Name,
+                            Description = "",
+                            IsUnlocked = true,
+                            UnlockTime = info.CreationTime
+                        });
                         dbg?.LocalFilesFound.Add(f);
                     }
             }
@@ -738,7 +767,7 @@ namespace AchievementTracker.Services
                 // Try to identify if this object is an achievement entry
                 // Common keys: "name"/"strID", "earned"/"bAchieved", "displayName"/"strName"
                 // If no name/ID found in object, fallback to property name
-                var id   = obj["name"]?.ToString() ?? obj["strID"]?.ToString() ?? propertyName;
+                var id = obj["name"]?.ToString() ?? obj["strID"]?.ToString() ?? propertyName;
                 var name = obj["displayName"]?["english"]?.ToString() ?? obj["displayName"]?.ToString() ?? obj["strName"]?.ToString() ?? propertyName;
 
                 // If it has an ID, we can use it for mapping
@@ -899,9 +928,9 @@ namespace AchievementTracker.Services
                 {
                     foreach (var item in arr)
                     {
-                        var id   = item["name"]?.ToString(); if (string.IsNullOrEmpty(id)) continue;
+                        var id = item["name"]?.ToString(); if (string.IsNullOrEmpty(id)) continue;
                         var earn = item["earned"]?.ToObject<bool>() ?? false;
-                        var ts   = item["earned_time"]?.ToObject<long>() ?? 0;
+                        var ts = item["earned_time"]?.ToObject<long>() ?? 0;
                         var name = item["displayName"]?["english"]?.ToString() ?? id;
                         var desc = item["description"]?["english"]?.ToString() ?? "";
                         var icon = item["icon"]?.ToString();
@@ -909,12 +938,19 @@ namespace AchievementTracker.Services
                         if (!string.IsNullOrEmpty(icon))
                             iconPath = Path.IsPathRooted(icon) ? icon
                                      : Path.Combine(Path.GetDirectoryName(filePath) ?? "", icon);
-                        var hid  = item["hidden"]?.ToObject<bool>() ?? item["bHidden"]?.ToObject<bool>() ?? false;
-                        var rar  = item["flAchieved"]?.ToObject<double>() ?? 0;
-                        list.Add(new Achievement { Id = id, Name = name, Description = desc,
-                            IsUnlocked = earn, IsHidden = hid, Rarity = rar,
+                        var hid = item["hidden"]?.ToObject<bool>() ?? item["bHidden"]?.ToObject<bool>() ?? false;
+                        var rar = item["flAchieved"]?.ToObject<double>() ?? 0;
+                        list.Add(new Achievement
+                        {
+                            Id = id,
+                            Name = name,
+                            Description = desc,
+                            IsUnlocked = earn,
+                            IsHidden = hid,
+                            Rarity = rar,
                             UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null,
-                            IconUrl    = iconPath });
+                            IconUrl = iconPath
+                        });
                     }
                 }
                 else if (token is JObject obj)
@@ -922,14 +958,21 @@ namespace AchievementTracker.Services
                     foreach (var prop in obj.Properties())
                     {
                         var earn = prop.Value["earned"]?.ToObject<bool>() ?? false;
-                        var ts   = prop.Value["earned_time"]?.ToObject<long>() ?? 0;
-                        var hid  = prop.Value["hidden"]?.ToObject<bool>() ?? prop.Value["bHidden"]?.ToObject<bool>() ?? false;
+                        var ts = prop.Value["earned_time"]?.ToObject<long>() ?? 0;
+                        var hid = prop.Value["hidden"]?.ToObject<bool>() ?? prop.Value["bHidden"]?.ToObject<bool>() ?? false;
                         var name = prop.Value["strName"]?.ToString() ?? prop.Value["displayName"]?.ToString() ?? prop.Name;
-                        var dsc  = prop.Value["strDescription"]?.ToString() ?? prop.Value["description"]?.ToString() ?? "";
-                        var rar  = prop.Value["flAchieved"]?.ToObject<double>() ?? 0;
-                        list.Add(new Achievement { Id = prop.Name, Name = name, Description = dsc,
-                            IsUnlocked = earn, IsHidden = hid, Rarity = rar,
-                            UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null });
+                        var dsc = prop.Value["strDescription"]?.ToString() ?? prop.Value["description"]?.ToString() ?? "";
+                        var rar = prop.Value["flAchieved"]?.ToObject<double>() ?? 0;
+                        list.Add(new Achievement
+                        {
+                            Id = prop.Name,
+                            Name = name,
+                            Description = dsc,
+                            IsUnlocked = earn,
+                            IsHidden = hid,
+                            Rarity = rar,
+                            UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null
+                        });
                     }
                 }
             }
@@ -956,8 +999,14 @@ namespace AchievementTracker.Services
                         if (unlocked && sectionData.TryGetValue("UnlockTime", out var tsStr)
                             && long.TryParse(tsStr, out var ts) && ts > 0)
                             t = DateTimeOffset.FromUnixTimeSeconds(ts).DateTime;
-                        list.Add(new Achievement { Id = currentSection, Name = currentSection, Description = "",
-                            IsUnlocked = unlocked, UnlockTime = t });
+                        list.Add(new Achievement
+                        {
+                            Id = currentSection,
+                            Name = currentSection,
+                            Description = "",
+                            IsUnlocked = unlocked,
+                            UnlockTime = t
+                        });
                         return;
                     }
                     if (currentSection.Equals("Achievements", StringComparison.OrdinalIgnoreCase))
@@ -965,8 +1014,14 @@ namespace AchievementTracker.Services
                         foreach (var kvp in sectionData)
                         {
                             var unlocked = kvp.Value == "1" || kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
-                            list.Add(new Achievement { Id = kvp.Key, Name = kvp.Key, Description = "",
-                                IsUnlocked = unlocked, UnlockTime = unlocked ? fileTime : (DateTime?)null });
+                            list.Add(new Achievement
+                            {
+                                Id = kvp.Key,
+                                Name = kvp.Key,
+                                Description = "",
+                                IsUnlocked = unlocked,
+                                UnlockTime = unlocked ? fileTime : (DateTime?)null
+                            });
                         }
                     }
                 }
@@ -999,9 +1054,9 @@ namespace AchievementTracker.Services
                 {
                     if (tuple[0]?.ToString() != "achievements") continue;
                     var data = tuple[1]?["data"]; if (data == null) continue;
-                    ParseSteamVec(data["vecHighlight"],      list, true);
+                    ParseSteamVec(data["vecHighlight"], list, true);
                     ParseSteamVec(data["vecAchievedHidden"], list, true);
-                    ParseSteamVec(data["vecUnachieved"],     list, false);
+                    ParseSteamVec(data["vecUnachieved"], list, false);
                 }
             }
             catch { }
@@ -1015,11 +1070,15 @@ namespace AchievementTracker.Services
             {
                 var id = item["strID"]?.ToString(); if (string.IsNullOrEmpty(id)) continue;
                 var ts = item["rtUnlocked"]?.ToObject<long>() ?? 0;
-                list.Add(new Achievement {
-                    Id = id, Name = item["strName"]?.ToString() ?? id, Description = item["strDescription"]?.ToString() ?? "",
+                list.Add(new Achievement
+                {
+                    Id = id,
+                    Name = item["strName"]?.ToString() ?? id,
+                    Description = item["strDescription"]?.ToString() ?? "",
                     IsUnlocked = isUnlocked,
                     UnlockTime = isUnlocked && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null,
-                    IconUrl    = item["strImage"]?.ToString() });
+                    IconUrl = item["strImage"]?.ToString()
+                });
             }
         }
 
@@ -1031,7 +1090,7 @@ namespace AchievementTracker.Services
         {
             var lower = path.ToLowerInvariant();
             return lower.Contains("steam_emu") || lower.Contains("achievements")
-                || lower.Contains("codex")    || lower.Contains("rune")
+                || lower.Contains("codex") || lower.Contains("rune")
                 || lower.Contains("achiev");
         }
 
@@ -1058,9 +1117,12 @@ namespace AchievementTracker.Services
             try
             {
                 var candidates = Directory.GetFiles(dir, "*.ini", SearchOption.AllDirectories)
-                    .Where(f => { var n = Path.GetFileName(f).ToLowerInvariant();
+                    .Where(f =>
+                    {
+                        var n = Path.GetFileName(f).ToLowerInvariant();
                         return n == "steam_emu.ini" || n == "context.ini" || n == "config.ini"
-                            || n.Contains("steam") || n.Contains("codex"); });
+                            || n.Contains("steam") || n.Contains("codex");
+                    });
 
                 foreach (var file in candidates)
                 {
@@ -1086,11 +1148,11 @@ namespace AchievementTracker.Services
         // Returns Dictionary<path, exists> to avoid ValueTuple (not available in net462 without package)
         private Dictionary<string, bool> GetExternalAchievementPathsWithStatus(string appId)
         {
-            var pub     = Path.Combine(Environment.GetEnvironmentVariable("PUBLIC") ?? @"C:\Users\Public", "Documents");
+            var pub = Path.Combine(Environment.GetEnvironmentVariable("PUBLIC") ?? @"C:\Users\Public", "Documents");
             var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var local   = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var prog    = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            var docs    = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var prog = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
             var paths = new[]
             {

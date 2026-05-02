@@ -64,6 +64,10 @@ namespace AchievementTracker.UI
             SteamErrorText.Text  = dbg.SteamFetchError ?? "";
             SteamMetadataBox.Text = dbg.SteamMetadataJson ?? "(none)";
 
+            // Hydra request
+            var hydraJson = dbg.RawHydraJson ?? dbg.HydraMetadataJson;
+            HydraMetadataBox.Text = hydraJson ?? "(none)";
+
             if (string.IsNullOrEmpty(dbg.SteamRequestUrl))
             {
                 SteamResultText.Text      = "⚠ Skipped";
