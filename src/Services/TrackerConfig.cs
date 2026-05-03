@@ -50,9 +50,17 @@ namespace AchievementTracker.Services
         /// Creates a TrackerConfig that loads from (or creates defaults at) the
         /// given extension data path.
         /// </summary>
-        public TrackerConfig(string extensionDataPath)
+        public TrackerConfig(string extensionDataPath = null)
         {
-            filePath = Path.Combine(extensionDataPath, DefaultFileName);
+            if (extensionDataPath == null)
+            {
+                // Use a temporary path for default config creation
+                filePath = Path.Combine(Path.GetTempPath(), DefaultFileName);
+            }
+            else
+            {
+                filePath = Path.Combine(extensionDataPath, DefaultFileName);
+            }
             Load();
         }
 
@@ -78,25 +86,49 @@ namespace AchievementTracker.Services
                             return;
                         }
                     }
-                    createdDefaults = true;
                 }
                 catch
                 {
-                    // Corrupt or unreadable — use defaults
                     createdDefaults = true;
                 }
 
-                SetDefaults();
-
                 if (createdDefaults)
                 {
+                    Apply(GetDefaults());
                     Save();
                 }
             }
         }
 
         /// <summary>
-        /// Writes the current config to disk as JSON.
+        /// Applies config values to this instance.
+        /// </summary>
+        private void Apply(TrackerConfig config)
+        {
+            this.Enabled = config.Enabled;
+            this.PollingIntervalSeconds = config.PollingIntervalSeconds;
+            this.NotificationTimeoutSeconds = config.NotificationTimeoutSeconds;
+            this.ShowNotificationSound = config.ShowNotificationSound;
+            this.NotificationVolumePercent = config.NotificationVolumePercent;
+        }
+
+        /// <summary>
+        /// Creates the configuration with default values.
+        /// </summary>
+        private TrackerConfig GetDefaults()
+        {
+            return new TrackerConfig
+            {
+                Enabled = true,
+                PollingIntervalSeconds = 10,
+                NotificationTimeoutSeconds = 5,
+                ShowNotificationSound = true,
+                NotificationVolumePercent = 100.0
+            };
+        }
+
+        /// <summary>
+        /// Saves the current configuration to disk.
         /// </summary>
         public void Save()
         {
@@ -104,92 +136,35 @@ namespace AchievementTracker.Services
             {
                 try
                 {
-                    var dir = Path.GetDirectoryName(filePath);
-                    if (!Directory.Exists(dir))
-                    {
-                        Directory.CreateDirectory(dir);
-                    }
-
                     var json = JsonConvert.SerializeObject(this, Formatting.Indented);
                     File.WriteAllText(filePath, json);
                 }
                 catch
                 {
-                    // Silently ignore — missing write permission, disk full, etc.
+                    // Ignore save failures and try to keep user data if possible
                 }
             }
         }
 
         /// <summary>
-        /// Validates and clamps PollingIntervalSeconds to the allowed range (5-120).
-        /// Returns the corrected value.
+        /// Validates and applies the polling interval constraint.
+        /// Polling interval must be between 5 and 120 seconds.
         /// </summary>
         public int GetValidatedPollingInterval()
         {
-            int val = PollingIntervalSeconds;
-            if (val < 5) val = 5;
-            if (val > 120) val = 120;
-            return val;
+            int interval = PollingIntervalSeconds;
+            if (interval < 5) interval = 5;
+            if (interval > 120) interval = 120;
+            return interval;
         }
 
         /// <summary>
-        /// Resets all fields to their default values and saves.
-        /// </summary>
-        public void ResetToDefaults()
-        {
-            lock (lockObj)
-            {
-                SetDefaults();
-                Save();
-            }
-        }
-
-        // ── Private helpers ──
-
-        /// <summary>
-        /// Toggles ShowNotificationSound and saves to disk immediately.
-        /// Returns the new value.
+        /// Toggles the notification sound on/off.
         /// </summary>
         public bool ToggleNotificationSound()
         {
-            lock (lockObj)
-            {
-                ShowNotificationSound = !ShowNotificationSound;
-                Save();
-                return ShowNotificationSound;
-            }
-        }
-
-        private void SetDefaults()
-        {
-            Enabled = true;
-            PollingIntervalSeconds = 10;
-            NotificationTimeoutSeconds = 5;
-            ShowNotificationSound = true;
-            NotificationVolumePercent = 40.0;
-        }
-
-        private void Apply(TrackerConfig other)
-        {
-            Enabled = other.Enabled;
-            PollingIntervalSeconds = Clamp(other.PollingIntervalSeconds, 5, 120);
-            NotificationTimeoutSeconds = Math.Max(1, other.NotificationTimeoutSeconds);
-            ShowNotificationSound = other.ShowNotificationSound;
-            NotificationVolumePercent = ClampDouble(other.NotificationVolumePercent, 0.0, 100.0);
-        }
-
-        private static int Clamp(int value, int min, int max)
-        {
-            if (value < min) return min;
-            if (value > max) return max;
-            return value;
-        }
-
-        private static double ClampDouble(double value, double min, double max)
-        {
-            if (value < min) return min;
-            if (value > max) return max;
-            return value;
+            ShowNotificationSound = !ShowNotificationSound;
+            return ShowNotificationSound;
         }
     }
 }

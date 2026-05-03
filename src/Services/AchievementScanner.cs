@@ -18,15 +18,16 @@ namespace AchievementTracker.Services
     /// <summary>
     /// Online-first achievement scanner:
     ///   1. Detect Steam AppId
-    ///   2. Fetch ALL achievements from Steam Community XML (names, descriptions, icons)
+    ///   2. Fetch ALL achievements from Steam Community XML OR Hydra API (names, descriptions, icons)
     ///   3. Scan local emulator files for unlock status (Goldberg, CODEX, FLT, etc.)
-    ///   4. Merge: every Steam achievement is listed; local files only set IsUnlocked + UnlockTime
+    ///   4. Merge: use the source with more unlocked achievements
     /// </summary>
     public class AchievementScanner
     {
         private readonly IPlayniteAPI playniteApi;
-        public string       DetectedId { get; private set; }
-        public ScanDebugInfo LastDebug  { get; private set; }
+        private const string HYDRA_API_URL = "https://hydra-api-us-east-1.losbroxas.org";
+        public string DetectedId { get; private set; }
+        public ScanDebugInfo LastDebug { get; private set; }
 
         public AchievementScanner(IPlayniteAPI api)
         {
@@ -57,14 +58,25 @@ namespace AchievementTracker.Services
             DetectedId = GetSteamAppId(game, dbg);
             dbg.DetectedAppId = DetectedId;
 
-            // ── STEP 2: Online fetch ───────────────────────────────────────────
+            // ── STEP 2: Online fetch from both Steam AND Hydra ─────────────────
             var masterList = new List<Achievement>();
+            var steamList = new List<Achievement>();
+            var hydraList = new List<Achievement>();
+
             if (!string.IsNullOrEmpty(DetectedId))
             {
-                masterList = FetchSteamAchievements(DetectedId, dbg);
-                if (masterList.Count > 0)
+                // Fetch from Steam Community API
+                steamList = FetchSteamAchievements(DetectedId, dbg);
+                if (steamList.Count > 0)
                 {
-                    dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(masterList, Newtonsoft.Json.Formatting.Indented);
+                    dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(steamList, Newtonsoft.Json.Formatting.Indented);
+                }
+
+                // Fetch from Hydra API (in parallel)
+                hydraList = FetchHydraAchievements(DetectedId, dbg);
+                if (hydraList.Count > 0)
+                {
+                    dbg.HydraMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(hydraList, Newtonsoft.Json.Formatting.Indented);
                 }
             }
 
@@ -78,40 +90,266 @@ namespace AchievementTracker.Services
                 .Select(l => l.IsUnlocked ? $"[UNLOCKED] {l.Name} ({l.Id})" : $"[LOCKED] {l.Name} ({l.Id})")
                 .ToList();
 
-            // ── STEP 4: If Steam returned nothing, local-only fallback ─────────
-            if (masterList.Count == 0)
+            // ── STEP 4 & 6: Merge BOTH Steam and Hydra lists with local, then select the one with MORE unlocks ─
+            var steamUnlockedList = new List<Achievement>();
+            var hydraUnlockedList = new List<Achievement>();
+
+            var localListCount = localAchievements.Count;
+            var steamMatchCount = steamList.Count;
+            var hydraMatchCount = hydraList.Count;
+
+            Log($"📊 Merging: Local={localListCount}, Steam={steamMatchCount}, Hydra={hydraMatchCount} → Counting unlocks...");
+
+            // Create and merge Steam list
+            if (steamList.Count > 0)
             {
-                dbg.Mode = "LocalOnly";
-                var localList = BuildLocalOnlyList(game, DetectedId, dbg);
-                dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(localList, Newtonsoft.Json.Formatting.Indented);
-                dbg.TotalAchievements = localList.Count;
-                return localList
-                    .OrderBy(a => a.IsUnlocked ? 0 : 1)
-                    .ThenBy(a => a.Name)
-                    .ToList();
+                dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(steamList, Newtonsoft.Json.Formatting.Indented);
+                MergeWithLocal(steamList, localAchievements, dbg);
+                var steamUnlockedCount = steamList.Count(a => a.IsUnlocked);
+                dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(steamList, Newtonsoft.Json.Formatting.Indented);
+                Log($"  Steam: {steamUnlockedCount}/{steamMatchCount} unlocked");
+                steamUnlockedList = steamList;
             }
 
-            // ── STEP 5: Merge unlock status into master list ───────────────────
-            dbg.Mode = "Online";
-            Log($"Merging {localAchievements.Count} local entries into {masterList.Count} Steam achievements...");
-            
-            foreach (var ach in masterList)
+            // Create and merge Hydra list
+            if (hydraList.Count > 0)
             {
-                string status = $"ID: '{ach.Id}' | Name: '{ach.Name}' -> ";
-                
+                dbg.HydraMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(hydraList, Newtonsoft.Json.Formatting.Indented);
+                MergeWithLocal(hydraList, localAchievements, dbg);
+                var hydraUnlockedCount = hydraList.Count(a => a.IsUnlocked);
+                dbg.HydraMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(hydraList, Newtonsoft.Json.Formatting.Indented);
+                Log($"  Hydra: {hydraUnlockedCount}/{hydraMatchCount} unlocked");
+                hydraUnlockedList = hydraList;
+            }
+
+            // ── STEP 6: Select the list with MORE unlocked achievements (return COMPLETE list) ─
+            var finalList = new List<Achievement>();
+            var sourceMetadata = dbg.SteamMetadataJson;
+            var sourceName = "None";
+            var sourceMode = "";
+
+            if (steamUnlockedList.Count > 0 && hydraUnlockedList.Count > 0)
+            {
+                // Both sources have data - pick the one with MORE unlocks
+                if (steamUnlockedList.Count(a => a.IsUnlocked) >= hydraUnlockedList.Count(a => a.IsUnlocked))
+                {
+                    finalList = steamUnlockedList;
+                    sourceMetadata = dbg.SteamMetadataJson;
+                    sourceName = "Steam";
+                    var steamUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                    sourceMode = $"Steam ({steamUnlockedCount} unlocks)";
+                    Log($"✅ Returning Steam: {sourceMode}");
+                }
+                else
+                {
+                    finalList = hydraUnlockedList;
+                    sourceMetadata = dbg.HydraMetadataJson;
+                    sourceName = "Hydra";
+                    var hydraUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                    sourceMode = $"Hydra ({hydraUnlockedCount} unlocks)";
+                    Log($"✅ Returning Hydra: {sourceMode}");
+                }
+            }
+            else if (steamUnlockedList.Count > 0)
+            {
+                finalList = steamUnlockedList;
+                sourceMetadata = dbg.SteamMetadataJson;
+                sourceName = "Steam";
+                var steamUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                sourceMode = $"Steam ({steamUnlockedCount} unlocks)";
+                Log($"✅ Returning Steam: {sourceMode}");
+            }
+            else if (hydraUnlockedList.Count > 0)
+            {
+                finalList = hydraUnlockedList;
+                sourceMetadata = dbg.HydraMetadataJson;
+                sourceName = "Hydra";
+                var hydraUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                Log($"✅ Returning Hydra: {sourceMode}");
+            }
+
+            // Sort so unlocked achievements are at the top, preserving natural order for others
+            finalList = finalList.OrderByDescending(a => a.IsUnlocked).ToList();
+
+            // Return the complete list (all achievements, not just unlocked)
+            dbg.TotalAchievements = finalList.Count;
+            dbg.SteamMetadataJson = sourceMetadata;
+            Log($"✅ Returning {sourceName}: {finalList.Count} achievements");
+
+            return finalList;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // HYDRA API FETCHER
+        // ─────────────────────────────────────────────────────────────────────
+
+        private List<Achievement> FetchHydraAchievements(string appId, ScanDebugInfo dbg = null)
+        {
+            var list = new List<Achievement>();
+            var url = $"{HYDRA_API_URL}/games/steam/{appId}/achievements";
+
+            try
+            {
+                if (dbg != null) dbg.HydraFetchMode = "Fetching";
+
+                var request = (HttpWebRequest)WebRequest.Create(url);
+                request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                request.Accept = "application/json, text/plain, */*";
+                request.Timeout = 10000;
+
+                using (var response = (HttpWebResponse)request.GetResponse())
+                using (var stream = response.GetResponseStream())
+                using (var reader = new StreamReader(stream))
+                {
+                    var json = reader.ReadToEnd();
+
+                    // Save raw Hydra JSON for debugging
+                    if (dbg != null)
+                    {
+                        dbg.RawHydraJson = json;
+                        Log($"Hydra raw JSON length: {json.Length} characters");
+                    }
+
+                    if (string.IsNullOrEmpty(json))
+                    {
+                        if (dbg != null) dbg.HydraFetchOk = false; dbg.HydraFetchError = "Empty response";
+                        return list;
+                    }
+
+                        var token = JToken.Parse(json);
+
+                        // Hydra API response structure:
+                        // 1) Direct array: [ { "name": "...", "displayName": "...", ... }, ... ]
+                        // 2) Wrapped object: { "value": [...], "Count": N }
+
+                        JArray achievements;
+                        if (token is JArray ja)
+                        {
+                            achievements = ja;
+                        }
+                        else if (token is JObject obj)
+                        {
+                            achievements = obj["value"]?.ToObject<JArray>() ?? obj["achievements"]?.ToObject<JArray>() ?? new JArray();
+                        }
+                        else
+                        {
+                            achievements = new JArray();
+                        }
+
+                        Log($"Hydra achievements count: {achievements.Count} (token type: {token.Type})");
+
+                    if (dbg != null) dbg.HydraAchievementCount = achievements.Count;
+
+                    foreach (var achJ in achievements)
+                    {
+                        // Debug logging
+                        var nameVal = achJ["name"]?.ToString();
+                        var displayNameVal = achJ["displayName"]?.ToString();
+                        var unlockedStr = achJ["unlocked"]?.ToString();
+                        Log($"Hydra achievement: ID='{nameVal}' Name='{displayNameVal}' Unlocked='{unlockedStr}'");
+
+                        var ach = new Achievement
+                        {
+                            Id = achJ["name"]?.ToString() ?? "",
+                            Name = achJ["displayName"]?.ToString() ?? "",
+                            Description = achJ["description"]?.ToString() ?? "",
+                            IconUrl = achJ["icon"]?.ToString() ?? null,
+                            IsHidden = !string.IsNullOrEmpty(achJ["hidden"]?.ToString()) && bool.TryParse(achJ["hidden"]?.ToString(), out var hiddenVal) && hiddenVal,
+                            Rarity = achJ["rarity"]?.ToString() != null ? double.Parse(achJ["rarity"].ToString(), CultureInfo.InvariantCulture) : 0,
+                            IsUnlocked = !string.IsNullOrEmpty(achJ["unlocked"]?.ToString()) && bool.TryParse(achJ["unlocked"]?.ToString(), out var unlockedVal) && unlockedVal,
+                            UnlockTime = achJ["unlock_time"]?.ToString() != null ? ParseHydraDateTime(achJ["unlock_time"].ToString()) : null
+                        };
+
+                        if (string.IsNullOrEmpty(ach.Id))
+                        {
+                            Log($"  SKIPPED - Empty ID for: {displayNameVal}");
+                            continue;
+                        }
+
+                        list.Add(ach);
+                    }
+
+                    if (dbg != null)
+                    {
+                        dbg.HydraFetchOk = true;
+                        dbg.HydraAchievementCount = list.Count;
+                        Log($"✅ Hydra parsed: API={achievements.Count} → List={list.Count}");
+                    }
+                }
+            }
+            catch (WebException ex) when (ex.Response != null)
+            {
+                var response = (HttpWebResponse)ex.Response;
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    if (dbg != null)
+                    {
+                        dbg.HydraFetchOk = false;
+                        dbg.HydraFetchError = $"404 Not Found (AppId {appId} may not exist in Hydra database)";
+                        dbg.HydraFetchMode = "NotFound";
+                    }
+                }
+                else
+                {
+                    if (dbg != null) { dbg.HydraFetchOk = false; dbg.HydraFetchError = ex.Message; dbg.HydraFetchMode = "Failed"; }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (dbg != null) { dbg.HydraFetchOk = false; dbg.HydraFetchError = ex.Message; dbg.HydraFetchMode = "Failed"; }
+            }
+            return list;
+        }
+
+        private DateTime? ParseHydraDateTime(string dateTimeStr)
+        {
+            // Hydra uses ISO 8601 format: "2024-01-15T12:30:45Z" or "2024-01-15T12:30:45.123Z"
+            if (string.IsNullOrEmpty(dateTimeStr)) return null;
+
+            try
+            {
+                // Try parsing with Z suffix (UTC)
+                if (dateTimeStr.EndsWith("Z", StringComparison.OrdinalIgnoreCase))
+                {
+                    return DateTime.ParseExact(dateTimeStr, "yyyy-MM-ddTHH:mm:ss.FFFFFFFZ", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+                }
+
+                // Try parsing without Z suffix
+                return DateTime.ParseExact(dateTimeStr, "yyyy-MM-ddTHH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+            }
+            catch
+            {
+                // Fallback to standard parsing
+                try
+                {
+                    return DateTime.Parse(dateTimeStr, CultureInfo.InvariantCulture);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // HYBRID FETCH: Try both Steam and Hydra, use the one with more unlocks
+        // ─────────────────────────────────────────────────────────────────────
+
+        private void MergeWithLocal(List<Achievement> achievementList, List<Achievement> localAchievements, ScanDebugInfo dbg)
+        {
+            foreach (var ach in achievementList)
+            {
+                string status = $"ID: '{ach.Id}' | Name: '{ach.Name}' | Desc: '{ach.Description}' -> ";
+
                 // 1. Match by technical ID
                 var match = localAchievements.FirstOrDefault(l => l.Id.Equals(ach.Id, StringComparison.OrdinalIgnoreCase));
                 if (match != null)
                 {
                     if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-                    
-                    // Fill in missing metadata from local match (common for hidden Steam achievements)
                     if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
                         if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
-                    
                     if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-                    
-                    dbg.MatchHistory.Add(status + "[MATCH BY ID]");
+                    dbg.MatchHistory.Add(status + "[MATCH BY ID] ");
                     continue;
                 }
 
@@ -120,13 +358,10 @@ namespace AchievementTracker.Services
                 if (match != null)
                 {
                     if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-                    
                     if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
                         if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
-                    
                     if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-                    
-                    dbg.MatchHistory.Add(status + "[MATCH BY NAME]");
+                    dbg.MatchHistory.Add(status + "[MATCH BY NAME] ");
                     continue;
                 }
 
@@ -136,17 +371,29 @@ namespace AchievementTracker.Services
                 if (match != null)
                 {
                     if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-                    
                     if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
                         if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
-                    
                     if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-                    
-                    dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: {normSteamName}]");
+                    dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: '{normSteamName}' ]");
                     continue;
                 }
 
-                // 4. Match by Normalized Description
+                // 4. Match by Steam/Hydra Name with Local Name (using Name property, not DisplayName)
+                if (!string.IsNullOrEmpty(ach.Name))
+                {
+                    match = localAchievements.FirstOrDefault(l => l.Name.Equals(ach.Name, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                    {
+                        if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                        if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                            if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                        if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                        dbg.MatchHistory.Add(status + $"[MATCH BY NAME: '{ach.Name}' ]");
+                        continue;
+                    }
+                }
+
+                // 5. Match by Normalized Description
                 if (!string.IsNullOrEmpty(ach.Description))
                 {
                     var normSteamDesc = Normalize(ach.Description);
@@ -154,30 +401,18 @@ namespace AchievementTracker.Services
                     if (match != null)
                     {
                         if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-                        
                         if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-                        
-                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM DESC]");
+                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM DESC: '{normSteamDesc}' ]");
                         continue;
                     }
                 }
 
-                dbg.MatchHistory.Add(status + "[NO MATCH]");
+                dbg.MatchHistory.Add(status + "[NO MATCH] ");
             }
-
-            // Apply global sorting: Unlocked first, then by commonality (higher percentage first)
-            masterList = masterList
-                .OrderByDescending(a => a.IsUnlocked)
-                .ThenByDescending(a => a.Rarity)
-                .ToList();
-
-            dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(masterList, Newtonsoft.Json.Formatting.Indented);
-            dbg.TotalAchievements = masterList.Count;
-            return masterList;
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // STEAM APP ID DETECTION
+        // HYBRID FETCH: Try both Steam and Hydra, use the one with more unlocks
         // ─────────────────────────────────────────────────────────────────────
 
         public string GetSteamAppId(Game game, ScanDebugInfo dbg = null)
@@ -244,7 +479,7 @@ namespace AchievementTracker.Services
         private List<Achievement> FetchSteamAchievements(string appId, ScanDebugInfo dbg)
         {
             var list = new List<Achievement>();
-            var url  = $"https://steamcommunity.com/stats/{appId}/achievements?xml=1&l=english";
+            var url = $"https://steamcommunity.com/stats/{appId}/achievements?xml=1&l=english";
             if (dbg != null) dbg.SteamRequestUrl = url;
 
             try
@@ -269,12 +504,12 @@ namespace AchievementTracker.Services
 
                             list.Add(new Achievement
                             {
-                                Id          = id,
-                                Name        = item.Element("name")?.Value ?? id,
+                                Id = id,
+                                Name = item.Element("name")?.Value ?? id,
                                 Description = item.Element("description")?.Value ?? "",
-                                IsHidden    = item.Element("hidden")?.Value == "1",
-                                IconUrl     = item.Element("iconClosed")?.Value,
-                                IsUnlocked  = false
+                                IsHidden = item.Element("hidden")?.Value == "1",
+                                IconUrl = item.Element("iconClosed")?.Value,
+                                IsUnlocked = false
                             });
                         }
                     }
@@ -282,7 +517,7 @@ namespace AchievementTracker.Services
                     {
                         // — HTML Path (Fallback) —————————————————————————————─
                         if (dbg != null) dbg.SteamFetchMode = "HTML (Scraped)";
-                        
+
                         // Scrape row by row using Regex
                         var rowMatches = Regex.Matches(content, @"<div class=""achieveRow\s*"".*?>(.*?)<div style=""clear:\s*both;""></div>", RegexOptions.Singleline);
                         foreach (Match m in rowMatches)
@@ -303,13 +538,13 @@ namespace AchievementTracker.Services
 
                             list.Add(new Achievement
                             {
-                                Id          = name, // fallback to name as ID
-                                Name        = name,
+                                Id = name, // fallback to name as ID
+                                Name = name,
                                 Description = desc,
-                                IsHidden    = desc.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase),
-                                Rarity      = perc,
-                                IconUrl     = icon,
-                                IsUnlocked  = false
+                                IsHidden = desc.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase),
+                                Rarity = perc,
+                                IconUrl = icon,
+                                IsUnlocked = false
                             });
                         }
                     }
@@ -498,8 +733,14 @@ namespace AchievementTracker.Services
                     foreach (var f in Directory.GetFiles(fltDir))
                     {
                         var info = new FileInfo(f);
-                        raw.Add(new Achievement { Id = info.Name, Name = info.Name,
-                            Description = "", IsUnlocked = true, UnlockTime = info.CreationTime });
+                        raw.Add(new Achievement
+                        {
+                            Id = info.Name,
+                            Name = info.Name,
+                            Description = "",
+                            IsUnlocked = true,
+                            UnlockTime = info.CreationTime
+                        });
                         dbg?.LocalFilesFound.Add(f);
                     }
             }
@@ -538,7 +779,7 @@ namespace AchievementTracker.Services
         // Merge helpers (update status dict only)
         // ─────────────────────────────────────────────────────────────────────
 
-        private void MergeGoldbergUnlocks(string filePath, 
+        private void MergeGoldbergUnlocks(string filePath,
             Dictionary<string, DateTime?> dict,
             Dictionary<string, string> idToNameMap = null)
         {
@@ -551,8 +792,8 @@ namespace AchievementTracker.Services
             catch { }
         }
 
-        private void ScanJsonForAchievements(JToken token, 
-            Dictionary<string, DateTime?> dict, 
+        private void ScanJsonForAchievements(JToken token,
+            Dictionary<string, DateTime?> dict,
             Dictionary<string, string> idToNameMap,
             string propertyName = null)
         {
@@ -563,9 +804,9 @@ namespace AchievementTracker.Services
                 // Try to identify if this object is an achievement entry
                 // Common keys: "name"/"strID", "earned"/"bAchieved", "displayName"/"strName"
                 // If no name/ID found in object, fallback to property name
-                var id   = obj["name"]?.ToString() ?? obj["strID"]?.ToString() ?? propertyName;
+                var id = obj["name"]?.ToString() ?? obj["strID"]?.ToString() ?? propertyName;
                 var name = obj["displayName"]?["english"]?.ToString() ?? obj["displayName"]?.ToString() ?? obj["strName"]?.ToString() ?? propertyName;
-                
+
                 // If it has an ID, we can use it for mapping
                 if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
                 {
@@ -598,7 +839,7 @@ namespace AchievementTracker.Services
                     }
 
                     var t = ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null;
-                    
+
                     if (!string.IsNullOrEmpty(id))
                     {
                         if (!dict.ContainsKey(id)) { dict[id] = t; Log($"Found local unlock (ID): {id}"); }
@@ -724,9 +965,9 @@ namespace AchievementTracker.Services
                 {
                     foreach (var item in arr)
                     {
-                        var id   = item["name"]?.ToString(); if (string.IsNullOrEmpty(id)) continue;
+                        var id = item["name"]?.ToString(); if (string.IsNullOrEmpty(id)) continue;
                         var earn = item["earned"]?.ToObject<bool>() ?? false;
-                        var ts   = item["earned_time"]?.ToObject<long>() ?? 0;
+                        var ts = item["earned_time"]?.ToObject<long>() ?? 0;
                         var name = item["displayName"]?["english"]?.ToString() ?? id;
                         var desc = item["description"]?["english"]?.ToString() ?? "";
                         var icon = item["icon"]?.ToString();
@@ -734,12 +975,19 @@ namespace AchievementTracker.Services
                         if (!string.IsNullOrEmpty(icon))
                             iconPath = Path.IsPathRooted(icon) ? icon
                                      : Path.Combine(Path.GetDirectoryName(filePath) ?? "", icon);
-                        var hid  = item["hidden"]?.ToObject<bool>() ?? item["bHidden"]?.ToObject<bool>() ?? false;
-                        var rar  = item["flAchieved"]?.ToObject<double>() ?? 0;
-                        list.Add(new Achievement { Id = id, Name = name, Description = desc,
-                            IsUnlocked = earn, IsHidden = hid, Rarity = rar,
+                        var hid = item["hidden"]?.ToObject<bool>() ?? item["bHidden"]?.ToObject<bool>() ?? false;
+                        var rar = item["flAchieved"]?.ToObject<double>() ?? 0;
+                        list.Add(new Achievement
+                        {
+                            Id = id,
+                            Name = name,
+                            Description = desc,
+                            IsUnlocked = earn,
+                            IsHidden = hid,
+                            Rarity = rar,
                             UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null,
-                            IconUrl    = iconPath });
+                            IconUrl = iconPath
+                        });
                     }
                 }
                 else if (token is JObject obj)
@@ -747,14 +995,21 @@ namespace AchievementTracker.Services
                     foreach (var prop in obj.Properties())
                     {
                         var earn = prop.Value["earned"]?.ToObject<bool>() ?? false;
-                        var ts   = prop.Value["earned_time"]?.ToObject<long>() ?? 0;
-                        var hid  = prop.Value["hidden"]?.ToObject<bool>() ?? prop.Value["bHidden"]?.ToObject<bool>() ?? false;
+                        var ts = prop.Value["earned_time"]?.ToObject<long>() ?? 0;
+                        var hid = prop.Value["hidden"]?.ToObject<bool>() ?? prop.Value["bHidden"]?.ToObject<bool>() ?? false;
                         var name = prop.Value["strName"]?.ToString() ?? prop.Value["displayName"]?.ToString() ?? prop.Name;
-                        var dsc  = prop.Value["strDescription"]?.ToString() ?? prop.Value["description"]?.ToString() ?? "";
-                        var rar  = prop.Value["flAchieved"]?.ToObject<double>() ?? 0;
-                        list.Add(new Achievement { Id = prop.Name, Name = name, Description = dsc,
-                            IsUnlocked = earn, IsHidden = hid, Rarity = rar,
-                            UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null });
+                        var dsc = prop.Value["strDescription"]?.ToString() ?? prop.Value["description"]?.ToString() ?? "";
+                        var rar = prop.Value["flAchieved"]?.ToObject<double>() ?? 0;
+                        list.Add(new Achievement
+                        {
+                            Id = prop.Name,
+                            Name = name,
+                            Description = dsc,
+                            IsUnlocked = earn,
+                            IsHidden = hid,
+                            Rarity = rar,
+                            UnlockTime = earn && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null
+                        });
                     }
                 }
             }
@@ -767,6 +1022,8 @@ namespace AchievementTracker.Services
             var list = new List<Achievement>();
             try
             {
+                Log($"🔍 Parsing Goldberg INI: {filePath}");
+                var achievementsCount = 0;
                 string currentSection = null;
                 var sectionData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var fileTime = File.GetLastWriteTime(filePath);
@@ -774,24 +1031,43 @@ namespace AchievementTracker.Services
                 void FlushSection()
                 {
                     if (currentSection == null) return;
-                    if (sectionData.TryGetValue("Achieved", out var achVal))
+
+                    // Flush single achievement if only "Achieved" key exists
+                    if (sectionData.ContainsKey("Achieved") && !sectionData.ContainsKey("Achievements"))
                     {
-                        var unlocked = achVal == "1" || achVal.Equals("true", StringComparison.OrdinalIgnoreCase);
-                        DateTime? t = unlocked ? fileTime : (DateTime?)null;
-                        if (unlocked && sectionData.TryGetValue("UnlockTime", out var tsStr)
+                        var unlocked = sectionData["Achieved"] == "1" || sectionData["Achieved"].Equals("true", StringComparison.OrdinalIgnoreCase);
+                        var unlockTimeStr = sectionData.TryGetValue("UnlockTime", out var tsStr) ? tsStr : "N/A";
+                        Log($"  ✅ Parsed achievement: ID='{currentSection}' Unlocked={unlocked} UnlockTime={unlockTimeStr}");
+                        achievementsCount++;
+                        var t = unlocked ? fileTime : (DateTime?)null;
+                        if (unlocked && sectionData.TryGetValue("UnlockTime", out tsStr)
                             && long.TryParse(tsStr, out var ts) && ts > 0)
                             t = DateTimeOffset.FromUnixTimeSeconds(ts).DateTime;
-                        list.Add(new Achievement { Id = currentSection, Name = currentSection, Description = "",
-                            IsUnlocked = unlocked, UnlockTime = t });
+                        list.Add(new Achievement
+                        {
+                            Id = currentSection,
+                            Name = currentSection,
+                            Description = "",
+                            IsUnlocked = unlocked,
+                            UnlockTime = t
+                        });
                         return;
                     }
+
+                    // Flush "Achievements" section with multiple achievements
                     if (currentSection.Equals("Achievements", StringComparison.OrdinalIgnoreCase))
                     {
                         foreach (var kvp in sectionData)
                         {
                             var unlocked = kvp.Value == "1" || kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
-                            list.Add(new Achievement { Id = kvp.Key, Name = kvp.Key, Description = "",
-                                IsUnlocked = unlocked, UnlockTime = unlocked ? fileTime : (DateTime?)null });
+                            list.Add(new Achievement
+                            {
+                                Id = kvp.Key,
+                                Name = kvp.Key,
+                                Description = "",
+                                IsUnlocked = unlocked,
+                                UnlockTime = unlocked ? fileTime : (DateTime?)null
+                            });
                         }
                     }
                 }
@@ -824,9 +1100,9 @@ namespace AchievementTracker.Services
                 {
                     if (tuple[0]?.ToString() != "achievements") continue;
                     var data = tuple[1]?["data"]; if (data == null) continue;
-                    ParseSteamVec(data["vecHighlight"],      list, true);
+                    ParseSteamVec(data["vecHighlight"], list, true);
                     ParseSteamVec(data["vecAchievedHidden"], list, true);
-                    ParseSteamVec(data["vecUnachieved"],     list, false);
+                    ParseSteamVec(data["vecUnachieved"], list, false);
                 }
             }
             catch { }
@@ -840,11 +1116,15 @@ namespace AchievementTracker.Services
             {
                 var id = item["strID"]?.ToString(); if (string.IsNullOrEmpty(id)) continue;
                 var ts = item["rtUnlocked"]?.ToObject<long>() ?? 0;
-                list.Add(new Achievement {
-                    Id = id, Name = item["strName"]?.ToString() ?? id, Description = item["strDescription"]?.ToString() ?? "",
+                list.Add(new Achievement
+                {
+                    Id = id,
+                    Name = item["strName"]?.ToString() ?? id,
+                    Description = item["strDescription"]?.ToString() ?? "",
                     IsUnlocked = isUnlocked,
                     UnlockTime = isUnlocked && ts > 0 ? DateTimeOffset.FromUnixTimeSeconds(ts).DateTime : (DateTime?)null,
-                    IconUrl    = item["strImage"]?.ToString() });
+                    IconUrl = item["strImage"]?.ToString()
+                });
             }
         }
 
@@ -855,9 +1135,28 @@ namespace AchievementTracker.Services
         private static bool IsAchievementIni(string path)
         {
             var lower = path.ToLowerInvariant();
-            return lower.Contains("steam_emu") || lower.Contains("achievements")
-                || lower.Contains("codex")    || lower.Contains("rune")
-                || lower.Contains("achiev");
+            // Accept files in achievements folders, or common emulator save folders
+            // Also accept any .ini file if it's in the game directory (for Goldberg compatibility)
+            if (lower.Contains("achievements") || lower.Contains("codex") ||
+                lower.Contains("rune") || lower.Contains("steam_emu") ||
+                lower.Contains("context") || lower.Contains("config") ||
+                lower.Contains("goldberg") || lower.Contains("emu") ||
+                lower.Contains("achieved") || lower.Contains("gse"))
+            {
+                return true;
+            }
+
+            // Accept ANY .ini in Steam game directories (safety net for Goldberg)
+            // This is the final fallback - we want to catch Goldberg saves
+            if (lower.EndsWith(".ini") &&
+                (lower.Contains("steamapps") || lower.Contains("common") ||
+                 lower.Contains("witcher") || lower.Contains("playwright") ||
+                 lower.Contains("steam_emu") || lower.Contains("gse")))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static string TryReadAppIdFile(string path)
@@ -883,9 +1182,12 @@ namespace AchievementTracker.Services
             try
             {
                 var candidates = Directory.GetFiles(dir, "*.ini", SearchOption.AllDirectories)
-                    .Where(f => { var n = Path.GetFileName(f).ToLowerInvariant();
+                    .Where(f =>
+                    {
+                        var n = Path.GetFileName(f).ToLowerInvariant();
                         return n == "steam_emu.ini" || n == "context.ini" || n == "config.ini"
-                            || n.Contains("steam") || n.Contains("codex"); });
+                            || n.Contains("steam") || n.Contains("codex");
+                    });
 
                 foreach (var file in candidates)
                 {
@@ -911,11 +1213,11 @@ namespace AchievementTracker.Services
         // Returns Dictionary<path, exists> to avoid ValueTuple (not available in net462 without package)
         private Dictionary<string, bool> GetExternalAchievementPathsWithStatus(string appId)
         {
-            var pub     = Path.Combine(Environment.GetEnvironmentVariable("PUBLIC") ?? @"C:\Users\Public", "Documents");
+            var pub = Path.Combine(Environment.GetEnvironmentVariable("PUBLIC") ?? @"C:\Users\Public", "Documents");
             var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var local   = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var prog    = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            var docs    = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var prog = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
             var paths = new[]
             {

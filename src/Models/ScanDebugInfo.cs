@@ -16,6 +16,16 @@ namespace AchievementTracker.Models
         public string SteamFetchError  { get; set; }
         public int    SteamAchievementCount { get; set; }
 
+        // ── Hydra API web fetch ───────────────────────────────────────────
+        public string HydraRequestUrl  { get; set; }
+        public bool   HydraFetchOk     { get; set; }
+        public string HydraFetchMode   { get; set; }   // "Fetching", "NotFound", "Failed"
+        public string HydraFetchError  { get; set; }
+        public int    HydraAchievementCount { get; set; }
+        public string HydraMetadataJson      { get; set; }   // Serialized achievement list
+        public string RawHydraJson           { get; set; }   // Raw API response
+        public string HydraMode             { get; set; }   // "Using Hydra data", "Hydra unavailable", "LocalOnly", etc.
+
         // ── Local files scanned ───────────────────────────────────────────
         public List<string> LocalFilesFound   { get; set; } = new List<string>();
         public List<string> LocalFilesChecked { get; set; } = new List<string>();   // checked but missing

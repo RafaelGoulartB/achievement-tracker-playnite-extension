@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using AchievementTracker.Services;
+using AchievementTracker.Settings;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 
@@ -16,9 +17,9 @@ namespace AchievementTracker.UI
     {
         private readonly IPlayniteAPI playniteApi;
         private readonly AchievementScanner scanner;
-        private TrackerConfig config;
+        private AchievementTracker.Settings.TrackerConfig config;
 
-        public AchievementTrackerControl(IPlayniteAPI api, TrackerConfig cfg = null)
+        public AchievementTrackerControl(IPlayniteAPI api, AchievementTracker.Settings.TrackerConfig cfg = null)
         {
             InitializeComponent();
             this.playniteApi = api;
@@ -30,7 +31,7 @@ namespace AchievementTracker.UI
         /// <summary>
         /// Updates the config reference (e.g., after lazy-init in plugin).
         /// </summary>
-        public void SetConfig(TrackerConfig cfg)
+        public void SetConfig(AchievementTracker.Settings.TrackerConfig cfg)
         {
             this.config = cfg;
         }
@@ -80,7 +81,7 @@ namespace AchievementTracker.UI
                             string msg = $"No achievements found for {game.Name}";
                             if (!string.IsNullOrEmpty(scanner.DetectedId))
                                 msg += $" (SteamId: {scanner.DetectedId})";
-                            
+
                             StatusText.Text = msg;
                             StatusText.Visibility = Visibility.Visible;
                             AchievementsListBox.Visibility = Visibility.Collapsed;
@@ -91,7 +92,7 @@ namespace AchievementTracker.UI
                         else
                         {
                             StatusText.Visibility = Visibility.Collapsed;
-                            
+
                             int unlocked = achievements.Count(a => a.IsUnlocked);
                             int total = achievements.Count;
                             double percent = total > 0 ? (double)unlocked / total * 100 : 0;
