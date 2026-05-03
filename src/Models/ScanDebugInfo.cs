@@ -24,6 +24,7 @@ namespace AchievementTracker.Models
         public int    HydraAchievementCount { get; set; }
         public string HydraMetadataJson      { get; set; }   // Serialized achievement list
         public string RawHydraJson           { get; set; }   // Raw API response
+        public string HydraMode             { get; set; }   // "Using Hydra data", "Hydra unavailable", "LocalOnly", etc.
 
         // ── Local files scanned ───────────────────────────────────────────
         public List<string> LocalFilesFound   { get; set; } = new List<string>();

@@ -90,150 +90,90 @@ namespace AchievementTracker.Services
                 .Select(l => l.IsUnlocked ? $"[UNLOCKED] {l.Name} ({l.Id})" : $"[LOCKED] {l.Name} ({l.Id})")
                 .ToList();
 
-            // ── STEP 4: If Steam returned nothing, local-only fallback ─────────
-            if (masterList.Count == 0)
-            {
-                dbg.Mode = "LocalOnly";
-                var localList = BuildLocalOnlyList(game, DetectedId, dbg);
-                dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(localList, Newtonsoft.Json.Formatting.Indented);
-                dbg.TotalAchievements = localList.Count;
-                return localList
-                    .OrderBy(a => a.IsUnlocked ? 0 : 1)
-                    .ThenBy(a => a.Name)
-                    .ToList();
-            }
+            // ── STEP 4 & 6: Merge BOTH Steam and Hydra lists with local, then select the one with MORE unlocks ─
+            var steamUnlockedList = new List<Achievement>();
+            var hydraUnlockedList = new List<Achievement>();
 
-            // ── STEP 4.5: Compare Steam vs Hydra, use the one with more unlocks ─
-            var finalList = new List<Achievement>();
-            var steamUnlockedCount = steamList.Count(a => a.IsUnlocked);
-            var hydraUnlockedCount = hydraList.Count(a => a.IsUnlocked);
+            var localListCount = localAchievements.Count;
+            var steamMatchCount = steamList.Count;
+            var hydraMatchCount = hydraList.Count;
 
-            var sourceList = steamList;
-            var sourceMetadata = dbg.SteamMetadataJson;
-            var sourceName = "Steam";
+            Log($"📊 Merging: Local={localListCount}, Steam={steamMatchCount}, Hydra={hydraMatchCount} → Counting unlocks...");
 
-            if (hydraList.Count > 0 && hydraUnlockedCount > steamUnlockedCount)
+            // Create and merge Steam list
+            if (steamList.Count > 0)
             {
-                // Hydra has more unlocks, use Hydra data
-                finalList = hydraList;
-                sourceMetadata = dbg.HydraMetadataJson;
-                sourceName = "Hydra";
-                Log($"Hydra has more unlocked achievements ({hydraUnlockedCount} vs {steamUnlockedCount}), using Hydra data");
-            }
-            else if (hydraList.Count > 0 && hydraUnlockedCount == steamUnlockedCount)
-            {
-                // Same number of unlocks, prefer Hydra (it's faster and cleaner)
-                finalList = hydraList;
-                sourceMetadata = dbg.HydraMetadataJson;
-                sourceName = "Hydra";
-                Log($"Hydra and Steam have same unlocks ({hydraUnlockedCount}), preferring Hydra");
-            }
-            else if (hydraList.Count > 0 && steamList.Count == 0)
-            {
-                // Steam failed, use Hydra
-                finalList = hydraList;
-                sourceMetadata = dbg.HydraMetadataJson;
-                sourceName = "Hydra";
-                Log("Steam failed, using Hydra data");
-            }
-            else if (steamList.Count > 0 && hydraList.Count == 0)
-            {
-                // Hydra failed, use Steam
                 dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(steamList, Newtonsoft.Json.Formatting.Indented);
-                dbg.TotalAchievements = steamList.Count;
-                dbg.Mode = "SteamOnly";
-                return steamList
-                    .OrderBy(a => a.IsUnlocked ? 0 : 1)
-                    .ThenBy(a => a.Name)
-                    .ToList();
+                MergeWithLocal(steamList, localAchievements, dbg);
+                var steamUnlockedCount = steamList.Count(a => a.IsUnlocked);
+                dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(steamList, Newtonsoft.Json.Formatting.Indented);
+                Log($"  Steam: {steamUnlockedCount}/{steamMatchCount} unlocked");
+                steamUnlockedList = steamList;
             }
 
-            dbg.Mode = sourceName + (finalList.Count > 0 ? " + Local" : "");
+            // Create and merge Hydra list
+            if (hydraList.Count > 0)
+            {
+                dbg.HydraMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(hydraList, Newtonsoft.Json.Formatting.Indented);
+                MergeWithLocal(hydraList, localAchievements, dbg);
+                var hydraUnlockedCount = hydraList.Count(a => a.IsUnlocked);
+                dbg.HydraMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(hydraList, Newtonsoft.Json.Formatting.Indented);
+                Log($"  Hydra: {hydraUnlockedCount}/{hydraMatchCount} unlocked");
+                hydraUnlockedList = hydraList;
+            }
+
+            // ── STEP 6: Select the list with MORE unlocked achievements (return COMPLETE list) ─
+            var finalList = new List<Achievement>();
+            var sourceMetadata = dbg.SteamMetadataJson;
+            var sourceName = "None";
+            var sourceMode = "";
+
+            if (steamUnlockedList.Count > 0 && hydraUnlockedList.Count > 0)
+            {
+                // Both sources have data - pick the one with MORE unlocks
+                if (steamUnlockedList.Count(a => a.IsUnlocked) >= hydraUnlockedList.Count(a => a.IsUnlocked))
+                {
+                    finalList = steamUnlockedList;
+                    sourceMetadata = dbg.SteamMetadataJson;
+                    sourceName = "Steam";
+                    var steamUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                    sourceMode = $"Steam ({steamUnlockedCount} unlocks)";
+                    Log($"✅ Returning Steam: {sourceMode}");
+                }
+                else
+                {
+                    finalList = hydraUnlockedList;
+                    sourceMetadata = dbg.HydraMetadataJson;
+                    sourceName = "Hydra";
+                    var hydraUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                    sourceMode = $"Hydra ({hydraUnlockedCount} unlocks)";
+                    Log($"✅ Returning Hydra: {sourceMode}");
+                }
+            }
+            else if (steamUnlockedList.Count > 0)
+            {
+                finalList = steamUnlockedList;
+                sourceMetadata = dbg.SteamMetadataJson;
+                sourceName = "Steam";
+                var steamUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                sourceMode = $"Steam ({steamUnlockedCount} unlocks)";
+                Log($"✅ Returning Steam: {sourceMode}");
+            }
+            else if (hydraUnlockedList.Count > 0)
+            {
+                finalList = hydraUnlockedList;
+                sourceMetadata = dbg.HydraMetadataJson;
+                sourceName = "Hydra";
+                var hydraUnlockedCount = finalList.Count(a => a.IsUnlocked);
+                Log($"✅ Returning Hydra: {sourceMode}");
+            }
+
+            // Return the complete list (all achievements, not just unlocked)
             dbg.TotalAchievements = finalList.Count;
             dbg.SteamMetadataJson = sourceMetadata;
+            Log($"✅ Returning {sourceName}: {finalList.Count} achievements");
 
-            Log($"Using {sourceName} data with {finalList.Count} achievements");
-
-            // ── STEP 5: Merge unlock status into master list ───────────────────
-            foreach (var ach in finalList)
-            {
-                string status = $"ID: '{ach.Id}' | Name: '{ach.Name}' -> ";
-
-                // 1. Match by technical ID
-                var match = localAchievements.FirstOrDefault(l => l.Id.Equals(ach.Id, StringComparison.OrdinalIgnoreCase));
-                if (match != null)
-                {
-                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-
-                    // Fill in missing metadata from local match (common for hidden Steam achievements)
-                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
-                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
-
-                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-
-                    dbg.MatchHistory.Add(status + "[MATCH BY ID]");
-                    continue;
-                }
-
-                // 2. Match by exact Name
-                match = localAchievements.FirstOrDefault(l => l.Name.Equals(ach.Name, StringComparison.OrdinalIgnoreCase));
-                if (match != null)
-                {
-                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-
-                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
-                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
-
-                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-
-                    dbg.MatchHistory.Add(status + "[MATCH BY NAME]");
-                    continue;
-                }
-
-                // 3. Match by Normalized Name
-                var normSteamName = Normalize(ach.Name);
-                match = localAchievements.FirstOrDefault(l => Normalize(l.Name) == normSteamName);
-                if (match != null)
-                {
-                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-
-                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
-                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
-
-                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-
-                    dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: {normSteamName}]");
-                    continue;
-                }
-
-                // 4. Match by Normalized Description
-                if (!string.IsNullOrEmpty(ach.Description))
-                {
-                    var normSteamDesc = Normalize(ach.Description);
-                    match = localAchievements.FirstOrDefault(l => !string.IsNullOrEmpty(l.Description) && Normalize(l.Description) == normSteamDesc);
-                    if (match != null)
-                    {
-                        if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
-
-                        if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
-
-                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM DESC]");
-                        continue;
-                    }
-                }
-
-                dbg.MatchHistory.Add(status + "[NO MATCH]");
-            }
-
-            // Apply global sorting: Unlocked first, then by commonality (higher percentage first)
-            masterList = masterList
-                .OrderByDescending(a => a.IsUnlocked)
-                .ThenByDescending(a => a.Rarity)
-                .ToList();
-
-            dbg.SteamMetadataJson = Newtonsoft.Json.JsonConvert.SerializeObject(masterList, Newtonsoft.Json.Formatting.Indented);
-            dbg.TotalAchievements = masterList.Count;
-            return masterList;
+            return finalList;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -316,7 +256,7 @@ namespace AchievementTracker.Services
                     {
                         dbg.HydraFetchOk = true;
                         dbg.HydraAchievementCount = list.Count;
-                        Log($"Hydra fetched {achievements.Count} items, {list.Count} added to list");
+                        Log($"✅ Hydra parsed: API={achievements.Count} → List={list.Count}");
                     }
                 }
             }
@@ -371,6 +311,86 @@ namespace AchievementTracker.Services
                 {
                     return null;
                 }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // HYBRID FETCH: Try both Steam and Hydra, use the one with more unlocks
+        // ─────────────────────────────────────────────────────────────────────
+
+        private void MergeWithLocal(List<Achievement> achievementList, List<Achievement> localAchievements, ScanDebugInfo dbg)
+        {
+            foreach (var ach in achievementList)
+            {
+                string status = $"ID: '{ach.Id}' | Name: '{ach.Name}' | Desc: '{ach.Description}' -> ";
+
+                // 1. Match by technical ID
+                var match = localAchievements.FirstOrDefault(l => l.Id.Equals(ach.Id, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                    dbg.MatchHistory.Add(status + "[MATCH BY ID] ");
+                    continue;
+                }
+
+                // 2. Match by exact Name
+                match = localAchievements.FirstOrDefault(l => l.Name.Equals(ach.Name, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                    dbg.MatchHistory.Add(status + "[MATCH BY NAME] ");
+                    continue;
+                }
+
+                // 3. Match by Normalized Name
+                var normSteamName = Normalize(ach.Name);
+                match = localAchievements.FirstOrDefault(l => Normalize(l.Name) == normSteamName);
+                if (match != null)
+                {
+                    if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                    if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                    if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                    dbg.MatchHistory.Add(status + $"[MATCH BY NORM NAME: '{normSteamName}' ]");
+                    continue;
+                }
+
+                // 4. Match by Steam/Hydra Name with Local Name (using Name property, not DisplayName)
+                if (!string.IsNullOrEmpty(ach.Name))
+                {
+                    match = localAchievements.FirstOrDefault(l => l.Name.Equals(ach.Name, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                    {
+                        if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                        if (string.IsNullOrEmpty(ach.Description) || ach.Description.Equals("Hidden Achievement", StringComparison.OrdinalIgnoreCase))
+                            if (!string.IsNullOrEmpty(match.Description)) ach.Description = match.Description;
+                        if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                        dbg.MatchHistory.Add(status + $"[MATCH BY NAME: '{ach.Name}' ]");
+                        continue;
+                    }
+                }
+
+                // 5. Match by Normalized Description
+                if (!string.IsNullOrEmpty(ach.Description))
+                {
+                    var normSteamDesc = Normalize(ach.Description);
+                    match = localAchievements.FirstOrDefault(l => !string.IsNullOrEmpty(l.Description) && Normalize(l.Description) == normSteamDesc);
+                    if (match != null)
+                    {
+                        if (match.IsUnlocked) { ach.IsUnlocked = true; ach.UnlockTime = match.UnlockTime; }
+                        if (ach.Rarity == 0 && match.Rarity > 0) ach.Rarity = match.Rarity;
+                        dbg.MatchHistory.Add(status + $"[MATCH BY NORM DESC: '{normSteamDesc}' ]");
+                        continue;
+                    }
+                }
+
+                dbg.MatchHistory.Add(status + "[NO MATCH] ");
             }
         }
 
