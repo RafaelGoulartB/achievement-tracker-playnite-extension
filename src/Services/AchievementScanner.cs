@@ -168,6 +168,9 @@ namespace AchievementTracker.Services
                 Log($"✅ Returning Hydra: {sourceMode}");
             }
 
+            // Sort so unlocked achievements are at the top, preserving natural order for others
+            finalList = finalList.OrderByDescending(a => a.IsUnlocked).ToList();
+
             // Return the complete list (all achievements, not just unlocked)
             dbg.TotalAchievements = finalList.Count;
             dbg.SteamMetadataJson = sourceMetadata;
