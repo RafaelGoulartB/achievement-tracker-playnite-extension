@@ -7,11 +7,9 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using AchievementTracker.Models;
 using AchievementTracker.Services;
-using AchievementTracker.Settings;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 
@@ -22,7 +20,6 @@ namespace AchievementTracker.UI
         private readonly IPlayniteAPI playniteApi;
         private readonly Game game;
         private AchievementScanner scanner;
-        private AudioSettings audioSettings = new AudioSettings();
 
         public DebugWindow(IPlayniteAPI api, Game game)
         {
@@ -31,15 +28,7 @@ namespace AchievementTracker.UI
             this.game   = game;
 
             GameTitle.Text = game.Name;
-            LoadAudioSettings();
             RunScan();
-        }
-
-        private void LoadAudioSettings()
-        {
-            var paths = AudioSettings.DefaultDirectories ?? new List<string>();
-            SoundDirectoriesText.Text = string.Join("\n• ", paths);
-            AvailableSoundsText.Text = "Loading available sounds...";
         }
 
         private void RunScan()
@@ -146,91 +135,10 @@ namespace AchievementTracker.UI
             sb.AppendLine();
             sb.AppendLine("--- MATCH HISTORY ---");
             foreach (var s in dbg.MatchHistory) sb.AppendLine(s);
+            sb.AppendLine();
 
             Clipboard.SetText(sb.ToString());
             MessageBox.Show("Debug info copied to clipboard!", "Copied", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
-        private void OnPreviewSound(object sender, RoutedEventArgs e)
-        {
-            PreviewAudioSound();
-        }
-
-        private void OnSoundEnabledChanged(object sender, RoutedEventArgs e)
-        {
-            audioSettings.EnableSounds = SoundEnabledCheckBox.IsChecked.Value;
-            SaveAudioSettings();
-        }
-
-        private void OnSoundSelectedChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (SoundFileComboBox.SelectedItem != null)
-            {
-                var selectedSound = (AudioSoundFile)SoundFileComboBox.SelectedItem;
-                audioSettings.SetSelectedSoundPath(selectedSound.Path);
-            }
-            SaveAudioSettings();
-        }
-
-        private void OnLoadSoundFiles(object sender, RoutedEventArgs e)
-        {
-            LoadAvailableSounds();
-        }
-
-        private void PreviewAudioSound()
-        {
-            if (audioSettings.EnableSounds && audioSettings.SelectedSoundPath != null && File.Exists(audioSettings.SelectedSoundPath))
-            {
-                try
-                {
-                    var soundPath = audioSettings.SelectedSoundPath;
-                    var volume = (float)(50.0 / 100.0); // Default 50% volume
-                    using (var reader = new NAudio.Wave.AudioFileReader(soundPath))
-                    {
-                        reader.Volume = volume;
-                        using (var output = new NAudio.Wave.WaveOutEvent())
-                        {
-                            output.Init(reader);
-                            output.Play();
-                            while (output.PlaybackState == NAudio.Wave.PlaybackState.Playing)
-                            {
-                                Thread.Sleep(50);
-                            }
-                        }
-                    }
-                    AvailableSoundsText.Text = $"Previewed: {Path.GetFileName(soundPath)}";
-                }
-                catch (Exception ex)
-                {
-                    AvailableSoundsText.Text = $"Error: {ex.Message}";
-                    AvailableSoundsText.Foreground = Brushes.Orange;
-                }
-            }
-        }
-
-        private void LoadAvailableSounds()
-        {
-            var sounds = audioSettings.GetAvailableSounds();
-            SoundFileComboBox.ItemsSource = sounds;
-
-            var discoveredFiles = sounds.Select(s => s.Path).ToList();
-
-            DiscoveredFilesText.Text = string.Join("\n• ", discoveredFiles);
-            AvailableSoundsText.Text = $"Found {sounds.Count} sound files";
-            AvailableSoundsText.Foreground = Brushes.Green;
-
-            // Auto-select first available sound if no selection exists
-            if (SoundFileComboBox.Items.Count > 0 && SoundFileComboBox.SelectedItem == null && sounds.Count > 0)
-            {
-                SoundFileComboBox.SelectedItem = sounds[0];
-            }
-
-            SoundEnabledCheckBox.IsEnabled = true;
-        }
-
-        private void SaveAudioSettings()
-        {
-            // Settings already saved via binding when selection changes
         }
     }
 }

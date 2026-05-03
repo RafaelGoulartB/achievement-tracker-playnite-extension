@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen"
         Background="#1E1E2E" Foreground="#CDD6F4"
         FontFamily="Consolas" FontSize="12">
-
+    
     <Window.Resources>
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#CDD6F4"/>
@@ -138,72 +138,6 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Audio Settings Section -->
-                <Border Style="{StaticResource Card}">
-                    <StackPanel>
-                        <Label Content="🔊 Notification Audio Settings"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition/>
-                            </Grid.RowDefinitions>
-
-                            <!-- Enable/Disable Toggle -->
-                            <CheckBox Grid.Row="0" Grid.Column="0" x:Name="SoundEnabledCheckBox"
-                                      Content="Enable Notification Sounds"
-                                      IsChecked="True"
-                                      ToolTip="Toggle notification sound playback"
-                                      IsEnabled="False"
-                                      Click="OnSoundEnabledChanged"/>
-
-                            <!-- Sound Dropdown -->
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="SoundFileComboBox"
-                                       DisplayMemberPath="Name"
-                                       VerticalAlignment="Top" Margin="10,4,0,0"
-                                       SelectionChanged="OnSoundSelectedChanged">
-                                <ComboBox.Resources>
-                                    <Style TargetType="Button">
-                                        <Setter Property="ClickMode" Value="Press"/>
-                                    </Style>
-                                </ComboBox.Resources>
-                            </ComboBox>
-
-                            <!-- Preview Button -->
-                            <Button Grid.Row="0" Grid.Column="1" x:Name="PreviewSoundBtn"
-                                     Content="▶ Preview"
-                                     Width="80" Height="25"
-                                     ToolTip="Play selected sound preview"
-                                     Click="OnPreviewSound"/>
-                        </Grid>
-                        <TextBlock x:Name="AvailableSoundsText" Foreground="#89B4FA" FontSize="11"
-                                   Margin="0,8,0,0" TextWrapping="Wrap"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- Sound Directories -->
-                <Border Style="{StaticResource Card}">
-                    <StackPanel>
-                        <Label Content="📁 Sound File Locations"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition/>
-                                <RowDefinition/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Configured Directories:" Foreground="#6C7086"/>
-                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="SoundDirectoriesText" TextWrapping="Wrap" Foreground="#A6E3A1"/>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Discovered Files:" Foreground="#6C7086"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="DiscoveredFilesText" TextWrapping="Wrap" Foreground="#CDD6F4"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
                 <!-- NEW: Local Unlocks Detail -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
@@ -254,7 +188,6 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
             <Button x:Name="RefreshBtn" Content="↺ Re-scan" Click="OnRefresh" Margin="0,0,8,0"/>
             <Button x:Name="CopyBtn"    Content="📋 Copy All" Click="OnCopy"/>
-            <Button x:Name="LoadSoundsBtn" Content="🔄 Load Sounds" Click="OnLoadSoundFiles" Margin="0,0,8,0"/>
         </StackPanel>
     </Grid>
 </Window>
