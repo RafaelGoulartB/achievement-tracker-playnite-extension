@@ -213,13 +213,27 @@ namespace AchievementTracker.Services
                         return list;
                     }
 
-                    var jobj = JObject.Parse(json);
+                        var token = JToken.Parse(json);
 
-                    // Hydra API response structure:
-                    // { "achievements": [ { "id": "...", "name": "...", "description": "...", "unlocked": true/false, "unlock_time": "..." }, ... ] }
-                    // OR it might be a direct array: [ { "id": "...", ... }, ... ]
+                        // Hydra API response structure:
+                        // 1) Direct array: [ { "name": "...", "displayName": "...", ... }, ... ]
+                        // 2) Wrapped object: { "value": [...], "Count": N }
 
-                    var achievements = jobj["achievements"]?.ToObject<JArray>() ?? new JArray();
+                        JArray achievements;
+                        if (token is JArray ja)
+                        {
+                            achievements = ja;
+                        }
+                        else if (token is JObject obj)
+                        {
+                            achievements = obj["value"]?.ToObject<JArray>() ?? obj["achievements"]?.ToObject<JArray>() ?? new JArray();
+                        }
+                        else
+                        {
+                            achievements = new JArray();
+                        }
+
+                        Log($"Hydra achievements count: {achievements.Count} (token type: {token.Type})");
 
                     if (dbg != null) dbg.HydraAchievementCount = achievements.Count;
 
