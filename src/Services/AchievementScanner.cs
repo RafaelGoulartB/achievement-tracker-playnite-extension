@@ -1005,6 +1005,8 @@ namespace AchievementTracker.Services
             var list = new List<Achievement>();
             try
             {
+                Log($"🔍 Parsing Goldberg INI: {filePath}");
+                var achievementsCount = 0;
                 string currentSection = null;
                 var sectionData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var fileTime = File.GetLastWriteTime(filePath);
@@ -1012,11 +1014,16 @@ namespace AchievementTracker.Services
                 void FlushSection()
                 {
                     if (currentSection == null) return;
-                    if (sectionData.TryGetValue("Achieved", out var achVal))
+
+                    // Flush single achievement if only "Achieved" key exists
+                    if (sectionData.ContainsKey("Achieved") && !sectionData.ContainsKey("Achievements"))
                     {
-                        var unlocked = achVal == "1" || achVal.Equals("true", StringComparison.OrdinalIgnoreCase);
-                        DateTime? t = unlocked ? fileTime : (DateTime?)null;
-                        if (unlocked && sectionData.TryGetValue("UnlockTime", out var tsStr)
+                        var unlocked = sectionData["Achieved"] == "1" || sectionData["Achieved"].Equals("true", StringComparison.OrdinalIgnoreCase);
+                        var unlockTimeStr = sectionData.TryGetValue("UnlockTime", out var tsStr) ? tsStr : "N/A";
+                        Log($"  ✅ Parsed achievement: ID='{currentSection}' Unlocked={unlocked} UnlockTime={unlockTimeStr}");
+                        achievementsCount++;
+                        var t = unlocked ? fileTime : (DateTime?)null;
+                        if (unlocked && sectionData.TryGetValue("UnlockTime", out tsStr)
                             && long.TryParse(tsStr, out var ts) && ts > 0)
                             t = DateTimeOffset.FromUnixTimeSeconds(ts).DateTime;
                         list.Add(new Achievement
@@ -1029,6 +1036,8 @@ namespace AchievementTracker.Services
                         });
                         return;
                     }
+
+                    // Flush "Achievements" section with multiple achievements
                     if (currentSection.Equals("Achievements", StringComparison.OrdinalIgnoreCase))
                     {
                         foreach (var kvp in sectionData)
@@ -1109,9 +1118,28 @@ namespace AchievementTracker.Services
         private static bool IsAchievementIni(string path)
         {
             var lower = path.ToLowerInvariant();
-            return lower.Contains("steam_emu") || lower.Contains("achievements")
-                || lower.Contains("codex") || lower.Contains("rune")
-                || lower.Contains("achiev");
+            // Accept files in achievements folders, or common emulator save folders
+            // Also accept any .ini file if it's in the game directory (for Goldberg compatibility)
+            if (lower.Contains("achievements") || lower.Contains("codex") ||
+                lower.Contains("rune") || lower.Contains("steam_emu") ||
+                lower.Contains("context") || lower.Contains("config") ||
+                lower.Contains("goldberg") || lower.Contains("emu") ||
+                lower.Contains("achieved") || lower.Contains("gse"))
+            {
+                return true;
+            }
+
+            // Accept ANY .ini in Steam game directories (safety net for Goldberg)
+            // This is the final fallback - we want to catch Goldberg saves
+            if (lower.EndsWith(".ini") &&
+                (lower.Contains("steamapps") || lower.Contains("common") ||
+                 lower.Contains("witcher") || lower.Contains("playwright") ||
+                 lower.Contains("steam_emu") || lower.Contains("gse")))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static string TryReadAppIdFile(string path)
